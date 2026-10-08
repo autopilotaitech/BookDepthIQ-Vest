@@ -3,7 +3,7 @@ import { bestAsk, bestBid } from '../src/book/book';
 import { PanelModel } from '../src/panel/model';
 import { formatPrice, tickDecimals, type Result, type Side, type WorkingOrder } from '../src/sim/paper';
 import { failPrice, leverageUsed, marginUsed, maxUnits, riskUsd, unitsForNotional, unitsForRisk } from '../src/sim/account';
-import { aggregate, bracketPreview, bucketOf, offscreen, roundTripCost, rowPnlUsd, stepGroup } from '../src/panel/ladderMath';
+import { aggregate, bucketOf, offscreen, roundTripCost, rowPnlUsd, stepGroup } from '../src/panel/ladderMath';
 import { loadSettings, saveSettings, type Settings, type SizeMode } from './settings';
 import { bidShare, imbalances, walls } from '../src/panel/footprint';
 import { buildProfile } from '../src/panel/profile';
@@ -65,7 +65,6 @@ export function App() {
   const [s, setS] = useState<Settings>(loadSettings);
   const [center, setCenter] = useState<number | null>(null);
   const [drag, setDrag] = useState<{ id: number; from: number } | null>(null);
-  const [hover, setHover] = useState<{ t: number; side: Side } | null>(null);
   const g = Math.max(1, s.groupTicks);
   const bk = (x: number | undefined) => (x === undefined ? undefined : bucketOf(x, g));
   // Hotkeys that OPEN risk (B/S/R/E) only work while armed; F (flatten) and Esc (cancel all) always do.
@@ -386,24 +385,11 @@ export function App() {
           return fp === undefined ? undefined : Math.round(fp / tick);
         })()
       : undefined;
-  // Hover preview: where an entry from this row would fill, and where its bracket would land.
-  const preview = (() => {
-    if (!hover || pos.qty !== 0 || units <= 0 || bid === undefined || ask === undefined) return null;
-    const entry = hover.side === 'buy' ? Math.min(hover.t, ask) : Math.max(hover.t, bid);
-    const br = s.bracketsOn ? bracketPreview(hover.side, entry, units, s.tpTicks, s.slTicks, tick) : {};
-    const room = equity - floor;
-    const failT = room > 0 ? Math.round(entry + ((hover.side === 'buy' ? -1 : 1) * room) / units / tick) : undefined;
-    return { side: hover.side, entry, ...br, failT };
-  })();
-  const pnlAt = (t: number): number | undefined =>
-    pos.qty !== 0
-      ? rowPnlUsd(pos.qty, pos.avgTicks, t, tick)
-      : preview
-        ? rowPnlUsd(preview.side === 'buy' ? units : -units, preview.entry, t, tick)
-        : undefined;
-  const failRow = failTicksPos ?? preview?.failT;
+  // P&L per row only while in a position (no hover "what if" preview: it shifted the ladder).
+  const pnlAt = (t: number): number | undefined => (pos.qty !== 0 ? rowPnlUsd(pos.qty, pos.avgTicks, t, tick) : undefined);
+  const failRow = failTicksPos;
   // v0.8 ladder columns: buy · sold · bid liq · price · ask liq · bought · sell · [P&L] · profile · [Δ]
-  const showPnl = !!(pos.qty || preview);
+  const showPnl = pos.qty !== 0;
   const cols = ['0.5fr', '0.62fr', '0.9fr', '1fr', '0.9fr', '0.62fr', '0.5fr', ...(showPnl ? ['0.7fr'] : []), '1.35fr', ...(s.showDelta ? ['0.7fr'] : [])].join(' ');
   const gridStyle = { gridTemplateColumns: cols };
   // Header sparkline of session cumulative delta (last 120 trades).
@@ -420,8 +406,6 @@ export function App() {
   const markers = [
     ...orders.map((o) => ({ label: o.leg ? o.leg.toUpperCase() : o.type === 'stop' ? 'STP' : 'LMT', ticks: o.priceTicks })),
     ...(failRow !== undefined ? [{ label: 'FAIL', ticks: failRow }] : []),
-    ...(preview?.tpTicks !== undefined ? [{ label: 'TP?', ticks: preview.tpTicks }] : []),
-    ...(preview?.slTicks !== undefined ? [{ label: 'SL?', ticks: preview.slTicks }] : []),
   ];
   const pinned = center === null ? [] : offscreen(markers, lo, hi);
   const pinRow = (p: (typeof pinned)[number]) => {
@@ -758,7 +742,6 @@ export function App() {
       <main className="body">
         <div
           className="ladder g8"
-          onMouseLeave={() => setHover(null)}
           onWheel={(e) => {
             if (center === null) return;
             detachBriefly();
@@ -785,7 +768,7 @@ export function App() {
             <span className="liqhead ask" title="resting ask size as heat · WALL = 3× the average level">ask liq</span>
             <span title="volume that lifted the ask at this price (buyers). Lit = buyers outweigh sellers diagonally by the imbalance ratio">bought</span>
             <span>sell</span>
-            {showPnl && <span>{pos.qty ? 'P&L' : 'if…'}</span>}
+            {showPnl && <span>P&amp;L</span>}
             <span title="volume profile since the panel opened: orange = sold at bid, cyan = bought at ask · POC outlined · value area bright">volume profile</span>
             {s.showDelta && (
               <span title="Δ = bought − sold at each price. Click to hide." className={`dhead ${m.cumDelta >= 0 ? 'up' : 'dn'}`} onClick={() => update({ showDelta: false })}>
@@ -812,9 +795,6 @@ export function App() {
               t === bk(m.lastTradeTicks) ? 'last' : '',
               t === bk(avgRow) ? 'avg' : '',
               t === bk(failRow) ? 'fail' : '',
-              preview && t === bk(preview.entry) ? 'pv-entry' : '',
-              preview && t === bk(preview.tpTicks) ? 'pv-tp' : '',
-              preview && t === bk(preview.slTicks) ? 'pv-sl' : '',
               bid !== undefined && ask !== undefined && t > bk(bid)! && t + g - 1 < ask ? 'inside' : '',
               volCls === 'out' ? '' : volCls,
             ].join(' ');
@@ -837,18 +817,16 @@ export function App() {
               act(t === drag.from ? broker.cancel(drag.id) : broker.modify(drag.id, t));
               setDrag(null);
             };
-            const enterBuy = () => setHover({ t, side: 'buy' });
-            const enterSell = () => setHover({ t, side: 'sell' });
             return (
               <div key={t} className={cls} style={gridStyle} onPointerUp={drop}>
-                <span className="orders buy" title={live ? 'LIVE: click = limit order on Vest (shift-click stops are paper-only: Vest has no stop entries)' : undefined} onMouseEnter={enterBuy} onClick={(e) => place('buy', t, e.shiftKey)}>
+                <span className="orders buy" title={live ? 'LIVE: click = limit order on Vest (shift-click stops are paper-only: Vest has no stop entries)' : undefined} onClick={(e) => place('buy', t, e.shiftKey)}>
                   {ordersAt(t, 'buy').map(orderChip)}
                 </span>
                 <span className={`fp sold ${imb.sell.has(t) ? 'imb' : ''} ${imb.sellStack.has(t) ? 'stack' : ''}`}>{so ? so.toFixed(2) : ''}</span>
                 <span
                   className="size bid liq"
                   style={b !== undefined ? { background: `rgba(34, 211, 238, ${(0.06 + 0.66 * (b / maxSize)).toFixed(2)})` } : undefined}
-                  onMouseEnter={enterBuy}
+                 
                   onClick={(e) => place('buy', t, e.shiftKey)}
                 >
                   {bidWalls.has(t) && <b className="wall">WALL</b>}
@@ -856,7 +834,6 @@ export function App() {
                 </span>
                 <span
                   className="price"
-                  onMouseEnter={() => setHover(null)}
                   onWheel={(e) => {
                     // Wheel over prices = zoom the price scale (group rows); anywhere else scrolls.
                     e.stopPropagation();
@@ -871,14 +848,14 @@ export function App() {
                 <span
                   className="size ask liq"
                   style={a !== undefined ? { background: `rgba(251, 146, 60, ${(0.06 + 0.66 * (a / maxSize)).toFixed(2)})` } : undefined}
-                  onMouseEnter={enterSell}
+                 
                   onClick={(e) => place('sell', t, e.shiftKey)}
                 >
                   <em>{a !== undefined ? (s.ladderUsd ? fmtK(a * t * tick) : a.toFixed(2)) : ''}</em>
                   {askWalls.has(t) && <b className="wall">WALL</b>}
                 </span>
                 <span className={`fp bought ${imb.buy.has(t) ? 'imb' : ''} ${imb.buyStack.has(t) ? 'stack' : ''}`}>{bo ? bo.toFixed(2) : ''}</span>
-                <span className="orders sell" title={live ? 'LIVE: click = limit order on Vest (shift-click stops are paper-only: Vest has no stop entries)' : undefined} onMouseEnter={enterSell} onClick={(e) => place('sell', t, e.shiftKey)}>
+                <span className="orders sell" title={live ? 'LIVE: click = limit order on Vest (shift-click stops are paper-only: Vest has no stop entries)' : undefined} onClick={(e) => place('sell', t, e.shiftKey)}>
                   {ordersAt(t, 'sell').map(orderChip)}
                 </span>
                 {showPnl && <span className={`pnl ${pnl === undefined ? '' : pnlClass(pnl)}`}>{pnl === undefined ? '' : fmtUsd(pnl)}</span>}
