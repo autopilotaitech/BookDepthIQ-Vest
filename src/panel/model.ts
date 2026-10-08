@@ -60,6 +60,11 @@ export class PanelModel {
   deltaAt = new Map<number, number>();
   /** Session cumulative delta. */
   cumDelta = 0;
+  /** Footprint: volume that lifted the ask / hit the bid at each price (ticks). */
+  boughtAt = new Map<number, number>();
+  soldAt = new Map<number, number>();
+  /** Cumulative delta after each trade, newest last (for the header sparkline). */
+  cumDeltaHist: number[] = [];
   lastTradeTicks: number | undefined;
   ladder = 0;
   broker: PaperBroker | null = null;
@@ -159,6 +164,10 @@ export class PanelModel {
           const sq = signedQty(msg.data.side, q);
           this.deltaAt.set(t, (this.deltaAt.get(t) ?? 0) + sq);
           this.cumDelta += sq;
+          const side = msg.data.side === 'buy' ? this.boughtAt : this.soldAt;
+          side.set(t, (side.get(t) ?? 0) + q);
+          this.cumDeltaHist.push(this.cumDelta);
+          if (this.cumDeltaHist.length > 400) this.cumDeltaHist.splice(0, this.cumDeltaHist.length - 400);
           this.tape.unshift({ id: msg.data.id, priceTicks: t, qty: q, side: msg.data.side, time: msg.data.time });
           if (this.tape.length > 200) this.tape.length = 200;
           this.changed();
@@ -195,6 +204,9 @@ export class PanelModel {
     this.volumeAt.clear();
     this.deltaAt.clear();
     this.cumDelta = 0;
+    this.boughtAt.clear();
+    this.soldAt.clear();
+    this.cumDeltaHist = [];
     this.lastTradeTicks = undefined;
     this.spreadWin = new SpreadWindow();
     this.basisTracker = new BasisTracker();

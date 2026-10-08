@@ -228,3 +228,45 @@ b { font-weight: 600; }
 .lrow.head .dhead.up { color: #22d3ee; }
 .lrow.head .dhead.dn { color: #fb923c; }
 .side h4 .mini { float: right; margin-left: 4px; padding: 0 6px; font-size: 10px; text-transform: none; }
+
+/* ───── v0.8 footprint + profile + delta + liquidity (concept G) ───── */
+.position { flex-wrap: wrap; }
+.position .warnv { color: #facc15; }
+.position .dup { color: #22d3ee; }
+.position .ddn { color: #fb923c; }
+.position small.va { color: #e879f9; }
+.position .spark { vertical-align: middle; margin-right: 6px; }
+.position .spark polyline { fill: none; stroke: currentColor; stroke-width: 1.6; }
+.ladder.g8 .lrow.head > span { text-align: center; }
+.lrow.head .liqhead.bid { color: #67e8f9; }
+.lrow.head .liqhead.ask { color: #fdba74; }
+/* liquidity heat replaces the size bars; WALL = 3x the average level */
+.lrow .liq em { position: relative; color: #fff; font-weight: 600; }
+.lrow .liq .wall { position: absolute; top: 3px; line-height: 12px; font-size: 8px; letter-spacing: 0.06em; padding: 0 3px; border-radius: 2px; color: #0b0e14; }
+.lrow .bid.liq .wall { left: 3px; background: #67e8f9; }
+.lrow .ask.liq .wall { right: 3px; background: #fdba74; }
+/* footprint cells */
+.lrow .fp { font-size: 12px; padding: 0 5px; }
+.lrow .fp.sold { text-align: right; color: #fed7aa; }
+.lrow .fp.bought { color: #a5f3fc; }
+.lrow .fp.sold.imb { background: #fb923c; color: #0b0e14; font-weight: 700; }
+.lrow .fp.bought.imb { background: #22d3ee; color: #0b0e14; font-weight: 700; }
+.lrow .fp.sold.stack { box-shadow: inset -3px 0 0 #fff; }
+.lrow .fp.bought.stack { box-shadow: inset 3px 0 0 #fff; }
+/* price: value area tinted, POC outlined */
+.lrow.va .price { background: #1a1424; color: #f5d0fe; }
+.lrow.poc .price { box-shadow: inset 0 0 0 2px #e4e8f0; color: #fff; font-weight: 700; }
+/* profile: split bar, sold (orange) then bought (cyan) */
+.lrow .prof { display: flex; align-items: center; gap: 5px; padding: 0 0 0 4px; }
+.lrow.va .prof { background: rgba(232, 121, 249, 0.07); }
+.lrow .prof .pbar { display: flex; height: 12px; flex: none; max-width: 70%; opacity: 0.4; }
+.lrow .prof.va .pbar { opacity: 0.85; }
+.lrow .prof.poc .pbar { opacity: 1; outline: 2px solid #e4e8f0; outline-offset: 1px; }
+.lrow .prof .pbar i { display: block; height: 100%; }
+.lrow .prof .ps { background: #fb923c; }
+.lrow .prof .pb { background: #22d3ee; }
+.lrow .prof em { font-size: 11px; color: #6b7485; }
+.lrow .prof.va em { color: #c3cad6; }
+.lrow .prof.poc em { color: #fff; font-weight: 700; }
+.lrow .prof .plabel { margin-left: auto; margin-right: 6px; font-size: 9px; letter-spacing: 0.08em; color: #e879f9; }
+.lrow .prof .plabel.poc { color: #fff; }

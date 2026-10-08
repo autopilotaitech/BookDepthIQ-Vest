@@ -87,6 +87,21 @@ Every LIVE launch starts in PAPER again. LIVE is never remembered.
 | **CANCEL ALL** / **Esc** | cancel all | cancels every resting Vest order on the symbol |
 | REVERSE / adding to an open position | yes | not yet (paper only) |
 
+**Reading the ladder** (columns, left to right)
+
+| Column | Shows |
+|---|---|
+| **Buy / Sell** | where you click to place limits; your order and TP/SL chips |
+| **Sold / Bought** | footprint: volume that hit the bid / lifted the ask at each price. A cell lights up when one side outweighs the other diagonally by the imbalance ratio (default 3:1, in settings); a white edge marks 3+ in a row (stacked) |
+| **Bid liq / Ask liq** | resting size as heat; **WALL** = at least 3× the average level |
+| **Price** | value area tinted, POC outlined, last trade and your average marked |
+| **Volume profile** | session volume per price, split orange (sold) / cyan (bought); POC outlined, value area bright, with POC / VAH / VAL labels |
+| **Δ** | bought − sold at each price (click the header to hide) |
+
+The position strip also shows **points to your fail floor**, POC and value area, the session
+cumulative delta with a sparkline, and the bid/ask split of visible liquidity. Volume, footprint
+and delta count from when the panel opens.
+
 **Sizing and brackets** (bottom bar)
 - **Size** can be in units, USD notional (like Vest's own ticket) or $ risk at the stop. The
   equivalent CME contracts, notional, leverage and round-trip cost are shown underneath.

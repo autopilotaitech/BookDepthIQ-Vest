@@ -31,6 +31,8 @@ export interface Settings {
   showLog: boolean;
   /** Ladder: show the per-price delta column. */
   showDelta: boolean;
+  /** Footprint: diagonal imbalance ratio that lights a Sold/Bought cell (3 = 3:1). */
+  imbalanceRatio: number;
 }
 
 const KEY = 'bdiqvest.settings.v3';
@@ -56,6 +58,7 @@ export const DEFAULTS: Settings = {
   liveSizeCap: 0, // 0 = off: trading power is the limit, as on Vest's own ticket
   showLog: false,
   showDelta: true,
+  imbalanceRatio: 3,
 };
 
 /** The old 0.01 default was a first-release cap the owner turned off (2026-10-08). */

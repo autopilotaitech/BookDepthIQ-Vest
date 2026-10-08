@@ -5,6 +5,7 @@ import { formatPrice, tickDecimals, type Result, type Side, type WorkingOrder } 
 import { failPrice, leverageUsed, marginUsed, maxUnits, riskUsd, unitsForNotional, unitsForRisk } from '../src/sim/account';
 import { aggregate, bracketPreview, bucketOf, offscreen, roundTripCost, rowPnlUsd, stepGroup } from '../src/panel/ladderMath';
 import { loadSettings, saveSettings, type Settings, type SizeMode } from './settings';
+import { bidShare, imbalances, walls } from '../src/panel/footprint';
 import { buildProfile } from '../src/panel/profile';
 import { watchHookStatus, watchUserToken, watchVestTabs } from './liveToken';
 import { liveOpenPnl } from '../src/live/rules';
@@ -286,6 +287,13 @@ export function App() {
   const prof = buildProfile(volAt, deltaAt);
   const maxVol = Math.max(1e-9, prof.maxVol);
   const maxDelta = Math.max(1e-9, prof.maxAbsDelta);
+  // Footprint (bought at ask / sold at bid per row) with diagonal imbalances, and liquidity walls.
+  const boughtG = aggregate([...m.boughtAt.keys()], [...m.boughtAt.values()], g);
+  const soldG = aggregate([...m.soldAt.keys()], [...m.soldAt.values()], g);
+  const imb = imbalances(boughtG, soldG, g, s.imbalanceRatio, 0.05 * prof.maxVol);
+  const bidWalls = walls(bidAt);
+  const askWalls = walls(askAt);
+  const liqBid = bidShare(bidAt.values(), askAt.values());
 
   // ── sizing ──
   const sizeDec = m.info?.sizeDecimals ?? 4;
@@ -394,6 +402,20 @@ export function App() {
         ? rowPnlUsd(preview.side === 'buy' ? units : -units, preview.entry, t, tick)
         : undefined;
   const failRow = failTicksPos ?? preview?.failT;
+  // v0.8 ladder columns: buy · sold · bid liq · price · ask liq · bought · sell · [P&L] · profile · [Δ]
+  const showPnl = !!(pos.qty || preview);
+  const cols = ['0.5fr', '0.62fr', '0.9fr', '1fr', '0.9fr', '0.62fr', '0.5fr', ...(showPnl ? ['0.7fr'] : []), '1.35fr', ...(s.showDelta ? ['0.7fr'] : [])].join(' ');
+  const gridStyle = { gridTemplateColumns: cols };
+  // Header sparkline of session cumulative delta (last 120 trades).
+  const spark = (() => {
+    const h = m.cumDeltaHist.slice(-120);
+    if (h.length < 2) return '';
+    const lo = Math.min(0, ...h);
+    const hi = Math.max(0, ...h);
+    const span = hi - lo || 1;
+    return h.map((v, i) => `${((i / (h.length - 1)) * 110).toFixed(1)},${(20 - ((v - lo) / span) * 18).toFixed(1)}`).join(' ');
+  })();
+  const toFloorPts = pos.qty ? (equity - floor) / Math.abs(pos.qty) : undefined;
   const implied = s.showIndexRef && m.impliedTicks !== undefined ? Math.round(m.impliedTicks) : undefined;
   const markers = [
     ...orders.map((o) => ({ label: o.leg ? o.leg.toUpperCase() : o.type === 'stop' ? 'STP' : 'LMT', ticks: o.priceTicks })),
@@ -627,6 +649,10 @@ export function App() {
             LIVE size cap u (0 = off)
             <input type="number" min={0} step={0.001} value={s.liveSizeCap} onChange={(e) => update({ liveSizeCap: Math.max(0, Number(e.target.value) || 0) })} />
           </label>
+          <label title="footprint: a Sold/Bought cell lights when one side outweighs the other diagonally by this ratio">
+            Imbalance ratio
+            <input type="number" min={1.5} step={0.5} value={s.imbalanceRatio} onChange={(e) => update({ imbalanceRatio: Math.max(1.5, Number(e.target.value) || 3) })} />
+          </label>
           <button className="mini" onClick={() => m.resetPaper()}>reset paper account</button>
         </details>
       </section>
@@ -651,6 +677,38 @@ export function App() {
         <div>
           <label>Open P&amp;L</label>
           <b className={pnlClass(unreal)}>{fmtUsd(unreal)}</b>
+        </div>
+        <div title="points the market can move against you before equity reaches the fail floor">
+          <label>To floor</label>
+          <b className="warnv">{toFloorPts === undefined ? '—' : `${toFloorPts.toFixed(toFloorPts < 10 ? 1 : 0)} pts`}</b>
+        </div>
+        <div title="volume profile since the panel opened">
+          <label>POC · VA</label>
+          <b>
+            {prof.poc === undefined ? '—' : formatPrice(prof.poc, tick)}
+            {prof.val !== undefined && prof.vah !== undefined && <small className="va">{formatPrice(prof.val, tick)}–{formatPrice(prof.vah, tick)}</small>}
+          </b>
+        </div>
+        <div title="session cumulative delta (bought − sold)">
+          <label>Cum Δ</label>
+          <b className={m.cumDelta >= 0 ? 'dup' : 'ddn'}>
+            {spark && (
+              <svg className="spark" width="110" height="22" viewBox="0 0 110 22" aria-hidden="true">
+                <polyline points={spark} />
+              </svg>
+            )}
+            {`${m.cumDelta >= 0 ? '+' : ''}${m.cumDelta.toFixed(2)}`}
+          </b>
+        </div>
+        <div title="share of visible resting size on the bid / on the ask">
+          <label>Bid / ask liq</label>
+          <b>
+            {liqBid === undefined ? '—' : (
+              <>
+                <span className="dup">{Math.round(liqBid * 100)}%</span> / <span className="ddn">{100 - Math.round(liqBid * 100)}%</span>
+              </>
+            )}
+          </b>
         </div>
         {!live && (
           <>
@@ -699,7 +757,7 @@ export function App() {
 
       <main className="body">
         <div
-          className={`ladder ${pos.qty || preview ? '' : 'no-pnl'} ${s.showDelta ? 'with-delta' : ''}`}
+          className="ladder g8"
           onMouseLeave={() => setHover(null)}
           onWheel={(e) => {
             if (center === null) return;
@@ -709,10 +767,12 @@ export function App() {
         >
           <div
             className="lrow head"
+            style={gridStyle}
             title="click = limit · shift+click = stop · chip: click cancel / drag move · wheel scroll · space recentre · F flatten · Esc cancel"
           >
             <span>buy</span>
-            <span>bid</span>
+            <span title="volume that hit the bid at this price (sellers). Lit = sellers outweigh buyers diagonally by the imbalance ratio">sold</span>
+            <span className="liqhead bid" title="resting bid size as heat · WALL = 3× the average level">bid liq</span>
             <span title="wheel over the price column to group rows">
               {follow ? (
                 <>price{g > 1 ? ` ×${g} (${(g * tick).toFixed(dec)})` : ''}</>
@@ -722,13 +782,14 @@ export function App() {
                 </button>
               )}
             </span>
-            <span>ask</span>
+            <span className="liqhead ask" title="resting ask size as heat · WALL = 3× the average level">ask liq</span>
+            <span title="volume that lifted the ask at this price (buyers). Lit = buyers outweigh sellers diagonally by the imbalance ratio">bought</span>
             <span>sell</span>
-            <span>{pos.qty ? 'P&L' : preview ? 'if…' : 'P&L'}</span>
-            <span title="volume traded at each price since the panel opened · bright = POC · lighter = 70% value area">vol</span>
+            {showPnl && <span>{pos.qty ? 'P&L' : 'if…'}</span>}
+            <span title="volume profile since the panel opened: orange = sold at bid, cyan = bought at ask · POC outlined · value area bright">volume profile</span>
             {s.showDelta && (
-              <span title="Δ = aggressive buys − aggressive sells at each price (cyan +, orange −). Header = session cumulative delta. Click to hide." className={`dhead ${m.cumDelta >= 0 ? 'up' : 'dn'}`} onClick={() => update({ showDelta: false })}>
-                Δ {`${m.cumDelta >= 0 ? '+' : ''}${m.cumDelta.toFixed(2)}`}
+              <span title="Δ = bought − sold at each price. Click to hide." className={`dhead ${m.cumDelta >= 0 ? 'up' : 'dn'}`} onClick={() => update({ showDelta: false })}>
+                Δ
               </span>
             )}
           </div>
@@ -740,6 +801,9 @@ export function App() {
             const v = volAt.get(t);
             const dl = deltaAt.get(t);
             const volCls = t === prof.poc ? 'poc' : prof.val !== undefined && prof.vah !== undefined && t >= prof.val && t <= prof.vah ? 'va' : 'out';
+            const bo = boughtG.get(t) ?? 0;
+            const so = soldG.get(t) ?? 0;
+            const pLabel = t === prof.poc ? 'POC' : t === prof.vah ? 'VAH' : t === prof.val ? 'VAL' : '';
             const pnl = pnlAt(t);
             const cls = [
               'lrow',
@@ -752,6 +816,7 @@ export function App() {
               preview && t === bk(preview.tpTicks) ? 'pv-tp' : '',
               preview && t === bk(preview.slTicks) ? 'pv-sl' : '',
               bid !== undefined && ask !== undefined && t > bk(bid)! && t + g - 1 < ask ? 'inside' : '',
+              volCls === 'out' ? '' : volCls,
             ].join(' ');
             const drop = () => {
               if (!drag) return;
@@ -775,12 +840,18 @@ export function App() {
             const enterBuy = () => setHover({ t, side: 'buy' });
             const enterSell = () => setHover({ t, side: 'sell' });
             return (
-              <div key={t} className={cls} onPointerUp={drop}>
+              <div key={t} className={cls} style={gridStyle} onPointerUp={drop}>
                 <span className="orders buy" title={live ? 'LIVE: click = limit order on Vest (shift-click stops are paper-only: Vest has no stop entries)' : undefined} onMouseEnter={enterBuy} onClick={(e) => place('buy', t, e.shiftKey)}>
                   {ordersAt(t, 'buy').map(orderChip)}
                 </span>
-                <span className="size bid" onMouseEnter={enterBuy} onClick={(e) => place('buy', t, e.shiftKey)}>
-                  {b !== undefined && <i style={{ width: `${(b / maxSize) * 100}%` }} />}
+                <span className={`fp sold ${imb.sell.has(t) ? 'imb' : ''} ${imb.sellStack.has(t) ? 'stack' : ''}`}>{so ? so.toFixed(2) : ''}</span>
+                <span
+                  className="size bid liq"
+                  style={b !== undefined ? { background: `rgba(34, 211, 238, ${(0.06 + 0.66 * (b / maxSize)).toFixed(2)})` } : undefined}
+                  onMouseEnter={enterBuy}
+                  onClick={(e) => place('buy', t, e.shiftKey)}
+                >
+                  {bidWalls.has(t) && <b className="wall">WALL</b>}
                   <em>{b !== undefined ? (s.ladderUsd ? fmtK(b * t * tick) : b.toFixed(2)) : ''}</em>
                 </span>
                 <span
@@ -797,17 +868,29 @@ export function App() {
                   {formatPrice(t, tick)}
                   {t === bk(failRow) && <b className="failtag">FAIL</b>}
                 </span>
-                <span className="size ask" onMouseEnter={enterSell} onClick={(e) => place('sell', t, e.shiftKey)}>
-                  {a !== undefined && <i style={{ width: `${(a / maxSize) * 100}%` }} />}
+                <span
+                  className="size ask liq"
+                  style={a !== undefined ? { background: `rgba(251, 146, 60, ${(0.06 + 0.66 * (a / maxSize)).toFixed(2)})` } : undefined}
+                  onMouseEnter={enterSell}
+                  onClick={(e) => place('sell', t, e.shiftKey)}
+                >
                   <em>{a !== undefined ? (s.ladderUsd ? fmtK(a * t * tick) : a.toFixed(2)) : ''}</em>
+                  {askWalls.has(t) && <b className="wall">WALL</b>}
                 </span>
+                <span className={`fp bought ${imb.buy.has(t) ? 'imb' : ''} ${imb.buyStack.has(t) ? 'stack' : ''}`}>{bo ? bo.toFixed(2) : ''}</span>
                 <span className="orders sell" title={live ? 'LIVE: click = limit order on Vest (shift-click stops are paper-only: Vest has no stop entries)' : undefined} onMouseEnter={enterSell} onClick={(e) => place('sell', t, e.shiftKey)}>
                   {ordersAt(t, 'sell').map(orderChip)}
                 </span>
-                <span className={`pnl ${pnl === undefined ? '' : pnlClass(pnl)}`}>{pnl === undefined ? '' : fmtUsd(pnl)}</span>
-                <span className={`vol ${volCls}`} title={t === prof.poc ? 'POC — most traded price this session' : volCls === 'va' ? 'inside the 70% value area' : undefined}>
-                  {v !== undefined && <i style={{ width: `${(v / maxVol) * 100}%` }} />}
+                {showPnl && <span className={`pnl ${pnl === undefined ? '' : pnlClass(pnl)}`}>{pnl === undefined ? '' : fmtUsd(pnl)}</span>}
+                <span className={`prof ${volCls}`} title={t === prof.poc ? 'POC — most traded price this session' : volCls === 'va' ? 'inside the 70% value area' : undefined}>
+                  {v !== undefined && (
+                    <span className="pbar" style={{ width: `${(v / maxVol) * 100}%` }}>
+                      <i className="ps" style={{ width: `${v ? (so / v) * 100 : 0}%` }} />
+                      <i className="pb" style={{ width: `${v ? (bo / v) * 100 : 0}%` }} />
+                    </span>
+                  )}
                   <em>{v !== undefined ? v.toFixed(2) : ''}</em>
+                  {pLabel && <b className={`plabel ${pLabel === 'POC' ? 'poc' : ''}`}>{pLabel}</b>}
                 </span>
                 {s.showDelta && (
                   <span className={`delta ${dl === undefined ? '' : dl >= 0 ? 'up' : 'dn'}`}>
