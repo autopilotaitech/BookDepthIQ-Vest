@@ -127,6 +127,11 @@ Open an issue at https://github.com/autopilotaitech/BookDepthIQ-Vest/issues with
 - the **copied LIVE LOG** (your login is already blanked out, but read it before posting)
 - a screenshot of the panel and of Vest's screen
 
+## Contributing
+
+Feedback, ideas and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and
+the rules for anything that touches LIVE trading.
+
 ## For developers
 
 ```bash
