@@ -7,9 +7,10 @@ orders, B/E and one-key flatten.
 
 > ## ⚠️ BETA — read this before you trade
 >
-> - **It works, and it is still beta.** LIVE market entries and ladder limit orders are in real
->   use on Vest. Order drag, TP/SL drag, B/E, FLATTEN and CANCEL ALL use Vest's own request
->   formats but have seen less live use. Confirm each one on Vest's screen the first time.
+> - **It works, and it is still beta.** Every LIVE action has been in real use on Vest since
+>   2026-10-08: market entries, ladder limit orders, order drag, TP/SL drag, B/E, FLATTEN and
+>   CANCEL ALL. Beta means it hasn't been tested on many accounts or setups yet. Confirm your
+>   first trades on Vest's own screen.
 > - **Vest publishes no trading API.** The panel sends the same requests Vest's own web app sends,
 >   using your existing login. If Vest changes its app, things can break without warning. Watch the
 >   result bar under the LIVE banner and keep Vest's own tab open to confirm every order.
