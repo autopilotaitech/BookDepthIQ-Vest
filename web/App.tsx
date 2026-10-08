@@ -559,8 +559,8 @@ export function App() {
             <span title="LIVE hard size cap (settings)">
               Cap <b>{s.liveSizeCap > 0 ? `${s.liveSizeCap}u` : 'off'}</b>
             </span>
-            <span className={L.positionsFresh() ? '' : 'neg'} title={L.pollError || 'positions + orders every 1.5 s, balance every 10 s'}>
-              {L.positionsFresh() ? 'Vest synced' : `Vest STALE${L.pollError ? `: ${L.pollError.slice(0, 60)}` : ''}`}
+            <span className={L.positionsFresh() ? '' : 'neg'} title={L.pollError || (L.pushOpen ? 'Vest pushes account changes; positions + orders re-read instantly (5 s safety net)' : 'positions + orders every 1.5 s, balance every 10 s')}>
+              {L.positionsFresh() ? (L.pushOpen ? 'Vest ⚡ live' : 'Vest synced (polling)') : `Vest STALE${L.pollError ? `: ${L.pollError.slice(0, 60)}` : ''}`}
             </span>
             {L.api.rateRemaining !== null && <span title="x-ratelimit-remaining">rate {L.api.rateRemaining}</span>}
             {!L.tokenOk() && (

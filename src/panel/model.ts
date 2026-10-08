@@ -86,6 +86,7 @@ export class PanelModel {
       uuid: () => crypto.randomUUID(),
       now: () => Date.now(),
       onChange: () => this.changed(),
+      privateSocket: (url, protocols) => new WebSocket(url, protocols),
     });
   }
 

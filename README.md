@@ -112,8 +112,10 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
   floor, positions must be freshly synced from Vest, and there must be no position already open on
   the symbol. These are the same limits Vest's own ticket enforces.
 - **Optional size cap:** settings → *LIVE size cap*. 0 means off.
-- **Vest is the source of truth.** Positions, orders and balance are polled from Vest every 1.5 s
-  and are never computed locally.
+- **Vest is the source of truth.** Positions, orders and balance come from Vest and are never
+  computed locally. Vest pushes account changes over its private socket, and the panel re-reads
+  them at once (the account row shows **Vest ⚡ live**). If the push drops, it falls back to
+  reading every 1.5 s (**Vest synced (polling)**).
 - **Your login stays in memory.** The extension reads the token your Vest tab already uses. It is
   never written to disk, never logged, and never sent anywhere except Vest's own API.
 

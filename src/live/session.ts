@@ -1,4 +1,5 @@
 import type { Side } from '../sim/paper.js';
+import { VestPrivateSocket, type PrivateSocketFactory } from '../vest/privateWs.js';
 import { VestTrading, type FetchLike } from '../vest/trading.js';
 import {
   claimsExpMs,
@@ -46,6 +47,8 @@ export interface LiveDeps {
   onChange(): void;
   setTimer?(fn: () => void, ms: number): unknown;
   clearTimer?(h: unknown): void;
+  /** Vest's private account socket (push). Absent = REST polling only (tests, dev server). */
+  privateSocket?: PrivateSocketFactory;
 }
 
 interface PendingEntry {
@@ -59,6 +62,8 @@ interface PendingEntry {
 }
 
 const POLL_MS = 1500;
+/** REST safety-net cadence while the private socket is pushing account events. */
+const PUSH_POLL_MS = 5000;
 const ACCOUNT_POLL_MS = 10_000;
 const MAX_POLL_MS = 10_000;
 const FRESH_MS = 5000;
@@ -94,12 +99,31 @@ export class LiveSession {
   private pollMs = POLL_MS;
   private lastAccountPoll = 0;
   private polling = false;
+  /** An account event arrived during a poll: read again as soon as it ends. */
+  private repoll = false;
+  private readonly push: VestPrivateSocket | null;
+  /** True while Vest's private socket is connected and pushing account events. */
+  pushOpen = false;
   private readonly setTimer: (fn: () => void, ms: number) => unknown;
   private readonly clearTimer: (h: unknown) => void;
 
   constructor(private readonly deps: LiveDeps) {
     this.setTimer = deps.setTimer ?? ((fn, ms) => setTimeout(fn, ms));
     this.clearTimer = deps.clearTimer ?? ((h) => clearTimeout(h as ReturnType<typeof setTimeout>));
+    this.push = deps.privateSocket
+      ? new VestPrivateSocket(
+          () => (this.tokenOk() ? this.userToken : null),
+          {
+            onAccountEvent: () => this.nudge(),
+            onStatus: (open) => {
+              this.pushOpen = open;
+              this.write(open ? '⚡ Vest push connected — updates are instant' : '… Vest push disconnected — polling every 1.5 s');
+              if (!open && (this.mode === 'live' || this.hasExposure())) this.kick(0);
+            },
+          },
+          deps.privateSocket,
+        )
+      : null;
     this.api = new VestTrading({
       fetch: deps.fetch,
       userToken: () => this.userToken,
@@ -208,6 +232,7 @@ export class LiveSession {
     this.write(`=== LIVE on ${this.account.label} (${this.account.id})`);
     this.pollMs = POLL_MS;
     this.lastAccountPoll = 0;
+    this.push?.start();
     this.kick(0);
     this.deps.onChange();
   }
@@ -217,12 +242,22 @@ export class LiveSession {
     this.mode = 'paper';
     this.write('=== back to PAPER');
     // Keep polling while Vest still holds something, so the panel can show it and flatten it.
-    if (!this.hasExposure()) this.stopPolling();
+    if (!this.hasExposure()) {
+      this.stopPolling();
+      this.push?.stop();
+    }
     this.deps.onChange();
   }
 
   stop(): void {
     this.stopPolling();
+    this.push?.stop();
+  }
+
+  /** Vest pushed an account event: read positions + orders now. */
+  private nudge(): void {
+    if (this.polling) this.repoll = true;
+    else if (this.mode === 'live' || this.hasExposure()) this.kick(0);
   }
 
   // ───────────── derived ─────────────
@@ -249,7 +284,10 @@ export class LiveSession {
   }
 
   positionsFresh(): boolean {
-    return this.positionsAt > 0 && this.deps.now() - this.positionsAt < FRESH_MS;
+    // With push open, Vest tells us about every change, so the last read stays good longer than
+    // the 5 s safety-net poll.
+    const limit = this.pushOpen ? PUSH_POLL_MS * 2 + 1000 : FRESH_MS;
+    return this.positionsAt > 0 && this.deps.now() - this.positionsAt < limit;
   }
 
   entryInFlight(): boolean {
@@ -573,6 +611,10 @@ export class LiveSession {
     } finally {
       this.polling = false;
       this.deps.onChange();
+      if (this.repoll) {
+        this.repoll = false;
+        this.kick(0);
+      }
     }
   }
 
@@ -623,7 +665,7 @@ export class LiveSession {
   private async tick(): Promise<void> {
     this.pollTimer = null;
     await this.poll();
-    if (this.mode === 'live' || this.hasExposure()) this.kick(this.pollMs);
+    if (this.mode === 'live' || this.hasExposure()) this.kick(this.pushOpen ? Math.max(this.pollMs, PUSH_POLL_MS) : this.pollMs);
   }
 
   private stopPolling(): void {
