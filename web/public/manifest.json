@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "BookDepthIQ-Vest",
+  "version": "0.5.0",
+  "description": "Scalping panel for Vest Markets perps. PAPER by default; LIVE sends real orders to the Vest account you are logged into.",
+  "action": { "default_title": "Open BookDepthIQ-Vest panel" },
+  "background": { "service_worker": "background.js" },
+  "permissions": ["storage", "scripting"],
+  "host_permissions": [
+    "https://api-gateway.hz.vestmarkets.com/*",
+    "wss://ws.hz.vestmarkets.com/*",
+    "https://next.vestmarkets.com/*"
+  ],
+  "content_scripts": [
+    {
+      "matches": ["https://next.vestmarkets.com/*"],
+      "js": ["vest-hook.js"],
+      "run_at": "document_start",
+      "world": "MAIN"
+    },
+    {
+      "matches": ["https://next.vestmarkets.com/*"],
+      "js": ["vest-relay.js"],
+      "run_at": "document_start"
+    }
+  ]
+}
