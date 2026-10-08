@@ -19,7 +19,6 @@ that touch LIVE is high. Everything else (UI, ladder, paper sim, docs) is open t
 git clone https://github.com/autopilotaitech/BookDepthIQ-Vest.git
 cd BookDepthIQ-Vest
 npm install
-npm run dev          # panel in a browser tab (PAPER only: no Vest login outside the extension)
 npm run build        # dist/ = the unpacked Chrome extension
 ```
 

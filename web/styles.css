@@ -205,3 +205,26 @@ b { font-weight: 600; }
 .live-result { padding: 4px 10px; font-weight: 600; cursor: pointer; border-bottom: 1px solid var(--line); }
 .live-result.neg { background: #3a0d0d; color: #fca5a5; }
 .live-result.ok { background: #0d2a17; color: #86efac; }
+
+/* ───── v0.7 profile + delta + tape-only side panel ───── */
+.ladder.with-delta .lrow { grid-template-columns: 0.7fr 1.1fr 1.15fr 1.1fr 0.7fr 0.85fr 0.75fr 0.75fr; }
+.ladder.with-delta.no-pnl .lrow { grid-template-columns: 0.7fr 1.2fr 1.2fr 1.2fr 0.7fr 0.8fr 0.75fr; }
+.ladder.with-delta.no-pnl .lrow.head > span:nth-child(6) { display: none; }
+/* volume profile: POC brightest, value area mid, outside dim */
+.lrow .vol.out i { background: #606a7a; opacity: 0.35; }
+.lrow .vol.va i { background: #96a0b2; opacity: 0.55; }
+.lrow .vol.poc i { background: #e4e8f0; opacity: 0.85; }
+.lrow .vol.poc em { color: #fff; font-weight: 700; }
+.lrow .vol.va em { color: #c3cad6; }
+/* delta: signed bar from the column centre, cyan + / orange − */
+.lrow .delta { text-align: center; }
+.lrow .delta i { position: absolute; top: 3px; bottom: 3px; opacity: 0.75; border-radius: 2px; }
+.lrow .delta.up i { left: 50%; background: #22d3ee; }
+.lrow .delta.dn i { right: 50%; background: #fb923c; }
+.lrow .delta em { position: relative; font-size: 11px; color: #c3cad6; }
+.lrow .delta.up em { color: #a5f3fc; }
+.lrow .delta.dn em { color: #fed7aa; }
+.lrow.head .dhead { cursor: pointer; font-weight: 700; }
+.lrow.head .dhead.up { color: #22d3ee; }
+.lrow.head .dhead.dn { color: #fb923c; }
+.side h4 .mini { float: right; margin-left: 4px; padding: 0 6px; font-size: 10px; text-transform: none; }

@@ -5,6 +5,7 @@ import { formatPrice, tickDecimals, type Result, type Side, type WorkingOrder } 
 import { failPrice, leverageUsed, marginUsed, maxUnits, riskUsd, unitsForNotional, unitsForRisk } from '../src/sim/account';
 import { aggregate, bracketPreview, bucketOf, offscreen, roundTripCost, rowPnlUsd, stepGroup } from '../src/panel/ladderMath';
 import { loadSettings, saveSettings, type Settings, type SizeMode } from './settings';
+import { buildProfile } from '../src/panel/profile';
 import { watchHookStatus, watchUserToken, watchVestTabs } from './liveToken';
 import { liveOpenPnl } from '../src/live/rules';
 
@@ -280,7 +281,11 @@ export function App() {
   const askAt = useMemo(() => (book ? aggregate(book.asks.ticks, book.asks.sizes, g) : new Map<number, number>()), [book, g]);
   const volAt = aggregate([...m.volumeAt.keys()], [...m.volumeAt.values()], g);
   const maxSize = Math.max(1, ...bidAt.values(), ...askAt.values());
-  const maxVol = Math.max(1e-9, ...volAt.values());
+  const deltaAt = aggregate([...m.deltaAt.keys()], [...m.deltaAt.values()], g);
+  // Session profile on the grouped rows: POC, 70% value area, delta scale.
+  const prof = buildProfile(volAt, deltaAt);
+  const maxVol = Math.max(1e-9, prof.maxVol);
+  const maxDelta = Math.max(1e-9, prof.maxAbsDelta);
 
   // ── sizing ──
   const sizeDec = m.info?.sizeDecimals ?? 4;
@@ -694,7 +699,7 @@ export function App() {
 
       <main className="body">
         <div
-          className={`ladder ${pos.qty || preview ? '' : 'no-pnl'}`}
+          className={`ladder ${pos.qty || preview ? '' : 'no-pnl'} ${s.showDelta ? 'with-delta' : ''}`}
           onMouseLeave={() => setHover(null)}
           onWheel={(e) => {
             if (center === null) return;
@@ -720,7 +725,12 @@ export function App() {
             <span>ask</span>
             <span>sell</span>
             <span>{pos.qty ? 'P&L' : preview ? 'if…' : 'P&L'}</span>
-            <span>vol</span>
+            <span title="volume traded at each price since the panel opened · bright = POC · lighter = 70% value area">vol</span>
+            {s.showDelta && (
+              <span title="Δ = aggressive buys − aggressive sells at each price (cyan +, orange −). Header = session cumulative delta. Click to hide." className={`dhead ${m.cumDelta >= 0 ? 'up' : 'dn'}`} onClick={() => update({ showDelta: false })}>
+                Δ {`${m.cumDelta >= 0 ? '+' : ''}${m.cumDelta.toFixed(2)}`}
+              </span>
+            )}
           </div>
           <div className="pins top">{pinned.filter((p) => p.above).map(pinRow)}</div>
           <div className="rows" ref={rowsRef}>
@@ -728,6 +738,8 @@ export function App() {
             const b = bidAt.get(t);
             const a = askAt.get(t);
             const v = volAt.get(t);
+            const dl = deltaAt.get(t);
+            const volCls = t === prof.poc ? 'poc' : prof.val !== undefined && prof.vah !== undefined && t >= prof.val && t <= prof.vah ? 'va' : 'out';
             const pnl = pnlAt(t);
             const cls = [
               'lrow',
@@ -793,10 +805,16 @@ export function App() {
                   {ordersAt(t, 'sell').map(orderChip)}
                 </span>
                 <span className={`pnl ${pnl === undefined ? '' : pnlClass(pnl)}`}>{pnl === undefined ? '' : fmtUsd(pnl)}</span>
-                <span className="vol">
+                <span className={`vol ${volCls}`} title={t === prof.poc ? 'POC — most traded price this session' : volCls === 'va' ? 'inside the 70% value area' : undefined}>
                   {v !== undefined && <i style={{ width: `${(v / maxVol) * 100}%` }} />}
                   <em>{v !== undefined ? v.toFixed(2) : ''}</em>
                 </span>
+                {s.showDelta && (
+                  <span className={`delta ${dl === undefined ? '' : dl >= 0 ? 'up' : 'dn'}`}>
+                    {dl !== undefined && dl !== 0 && <i style={{ width: `${(Math.abs(dl) / maxDelta) * 50}%` }} />}
+                    <em>{dl !== undefined && Math.abs(dl) >= 0.005 ? `${dl > 0 ? '+' : ''}${dl.toFixed(2)}` : ''}</em>
+                  </span>
+                )}
               </div>
             );
           })}
@@ -806,8 +824,18 @@ export function App() {
 
         <aside className="side">
           <div className="tape">
-            <h4>Vest tape</h4>
-            {m.tape.slice(0, 40).map((r) => (
+            <h4>
+              Vest tape
+              <button className="mini" title={s.showLog ? 'hide the log: tape only' : 'show the PAPER / LIVE request log under the tape'} onClick={() => update({ showLog: !s.showLog })}>
+                {s.showLog ? 'hide log' : 'log'}
+              </button>
+              {!s.showDelta && (
+                <button className="mini" title="show the Δ (delta) column on the ladder" onClick={() => update({ showDelta: true })}>
+                  Δ
+                </button>
+              )}
+            </h4>
+            {m.tape.slice(0, s.showLog ? 40 : 120).map((r) => (
               <div key={r.id} className={`trow ${r.side}`}>
                 <span>{new Date(r.time).toLocaleTimeString([], { hour12: false })}</span>
                 <span>{formatPrice(r.priceTicks, tick)}</span>
@@ -816,7 +844,7 @@ export function App() {
             ))}
             {m.tape.length === 0 && <div className="muted">waiting for trades…</div>}
           </div>
-          <div className="log">
+          {s.showLog && <div className="log">
             {live || L.log.length > 0 ? (
               <h4>
                 LIVE log{' '}
@@ -844,7 +872,7 @@ export function App() {
                   fill {f.side} {f.qty} @ {formatPrice(f.priceTicks, tick)} ({f.note}){f.realizedUsd ? ` ${fmtUsd(f.realizedUsd)}` : ''}
                 </div>
               ))}
-          </div>
+          </div>}
         </aside>
       </main>
 

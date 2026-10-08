@@ -26,6 +26,11 @@ export interface Settings {
   /** Optional LIVE hard size cap in units, 0 = off. The panel's MODE is never saved:
    * every launch starts in PAPER. */
   liveSizeCap: number;
+  /** Side panel: show the PAPER/LIVE log under the tape. Off = tape only (the result bar under
+   * the LIVE banner still shows every action). */
+  showLog: boolean;
+  /** Ladder: show the per-price delta column. */
+  showDelta: boolean;
 }
 
 const KEY = 'bdiqvest.settings.v3';
@@ -49,6 +54,8 @@ export const DEFAULTS: Settings = {
   maxDrawdownUsd: 10,
   leverage: 25,
   liveSizeCap: 0, // 0 = off: trading power is the limit, as on Vest's own ticket
+  showLog: false,
+  showDelta: true,
 };
 
 /** The old 0.01 default was a first-release cap the owner turned off (2026-10-08). */

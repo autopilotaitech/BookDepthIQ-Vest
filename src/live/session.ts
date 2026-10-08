@@ -156,6 +156,7 @@ export class LiveSession {
     const h = this.hookStatus;
     const v = this.vestTabs;
     if (this.userToken && !this.tokenOk()) return 'the captured Vest login has expired — reload the Vest tab';
+    if (v && v.tabs === 0 && v.error) return `LIVE needs the Chrome extension (${v.error})`;
     if (v && v.tabs === 0) return 'no next.vestmarkets.com tab is open in THIS Chrome window set — open Vest and log in here (the panel and Vest must be in the same Chrome profile)';
     if (v && v.hooked === 0) return `the panel could not reach the Vest tab (${v.error ?? 'no hook answer'}) — reload the Vest tab`;
     if (h && h.bearer === 0 && v) return 'Vest has not sent a logged-in request since the hook loaded — reload the Vest tab (it sends its login on load)';

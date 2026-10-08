@@ -147,7 +147,8 @@ the rules for anything that touches LIVE trading.
 ```bash
 npm test             # unit tests (request bodies, guards, flatten-always-works, readers)
 npm run typecheck
-npm run dev          # panel in a normal browser tab (PAPER only: no Vest login outside the extension)
+npm run build        # then reload the unpacked extension to try a change (Vest's API refuses
+                     # requests from localhost, so `npm run dev` can't load market data)
 npm run probe -- NQ-PERP 60   # measure the live Vest book for 60 s
 ```
 

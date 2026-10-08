@@ -1,5 +1,6 @@
 import { bestAsk, bestBid, bookFromDepth, midTicks, spreadTicks, type Book } from '../book/book.js';
 import { ladderScore } from '../book/stats.js';
+import { signedQty } from './profile.js';
 import { PaperBroker, type Result, type Side } from '../sim/paper.js';
 import { failFloor, preTradeCheck, type AccountSpec } from '../sim/account.js';
 import { BasisTracker, SpreadWindow } from './ladderMath.js';
@@ -54,6 +55,11 @@ export class PanelModel {
   tape: TapeRow[] = [];
   /** Volume printed at each price since the panel opened (ticks -> units). */
   volumeAt = new Map<number, number>();
+  /** Aggressive buys − aggressive sells per price (ticks), since the panel opened. Vest's trade
+   * `side` is the taker's side. */
+  deltaAt = new Map<number, number>();
+  /** Session cumulative delta. */
+  cumDelta = 0;
   lastTradeTicks: number | undefined;
   ladder = 0;
   broker: PaperBroker | null = null;
@@ -150,6 +156,9 @@ export class PanelModel {
           const q = Number(msg.data.qty);
           this.lastTradeTicks = t;
           this.volumeAt.set(t, (this.volumeAt.get(t) ?? 0) + q);
+          const sq = signedQty(msg.data.side, q);
+          this.deltaAt.set(t, (this.deltaAt.get(t) ?? 0) + sq);
+          this.cumDelta += sq;
           this.tape.unshift({ id: msg.data.id, priceTicks: t, qty: q, side: msg.data.side, time: msg.data.time });
           if (this.tape.length > 200) this.tape.length = 200;
           this.changed();
@@ -184,6 +193,8 @@ export class PanelModel {
     this.ticker = null;
     this.tape = [];
     this.volumeAt.clear();
+    this.deltaAt.clear();
+    this.cumDelta = 0;
     this.lastTradeTicks = undefined;
     this.spreadWin = new SpreadWindow();
     this.basisTracker = new BasisTracker();
