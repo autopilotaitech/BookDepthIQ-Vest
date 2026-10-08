@@ -3,8 +3,9 @@ import { bestAsk, bestBid } from '../src/book/book';
 import { PanelModel } from '../src/panel/model';
 import { formatPrice, tickDecimals, type Result, type Side, type WorkingOrder } from '../src/sim/paper';
 import { failPrice, leverageUsed, marginUsed, maxUnits, riskUsd, unitsForNotional, unitsForRisk } from '../src/sim/account';
-import { aggregate, bucketOf, offscreen, roundTripCost, rowPnlUsd, stepGroup } from '../src/panel/ladderMath';
+import { aggregate, bucketOf, offscreen, rowPnlUsd, stepGroup } from '../src/panel/ladderMath';
 import { loadSettings, saveSettings, type Settings, type SizeMode } from './settings';
+import { edgeRatio, roundTrip, spreadGate } from '../src/panel/cost';
 import { bidShare, imbalances, walls } from '../src/panel/footprint';
 import { buildProfile } from '../src/panel/profile';
 import { watchHookStatus, watchUserToken, watchVestTabs } from './liveToken';
@@ -454,7 +455,15 @@ export function App() {
   const basis = m.basisBps();
   const wide = spread !== undefined && m.spreadWin.isWide(spread);
   const p90 = m.spreadWin.quantile(0.9);
-  const rt = spread !== undefined && refPx ? roundTripCost(units, spread, tick, refPx, Number(m.info?.takerFee ?? 0) || 0) : undefined;
+  // v0.9 cost panel: real fill for this size from the live book, all-in break-even, spread gate.
+  const takerFee = Number(m.info?.takerFee ?? 0) || 0;
+  const rtBuy = book && units > 0 ? roundTrip(book.bids, book.asks, 'buy', units, tick, takerFee) : undefined;
+  const rtSell = book && units > 0 ? roundTrip(book.bids, book.asks, 'sell', units, tick, takerFee) : undefined;
+  const breakEven = rtBuy && rtSell ? Math.max(rtBuy.breakEvenPts, rtSell.breakEvenPts) : (rtBuy ?? rtSell)?.breakEvenPts;
+  const gate = spread !== undefined ? spreadGate(spread, m.spreadWin.quantile(0.5), p90) : undefined;
+  const tpPts = s.bracketsOn ? s.tpTicks * tick : 0;
+  const edge = edgeRatio(tpPts, breakEven);
+  const fillTxt = (r: typeof rtBuy) => (r ? (r.entry.avgTicks * tick).toFixed(dec) : '—');
 
   keys.current = {
     f: flattenNow,
@@ -994,12 +1003,6 @@ export function App() {
             </span>
           )}
           <span>${units.toFixed(2)}/pt</span>
-          {rt && units > 0 && (
-            <span className={ddLeft > 0 && rt.totalUsd / ddLeft > 0.1 ? 'neg' : ''} title={`spread $${rt.spreadUsd.toFixed(2)} + 2 × taker fee $${(rt.feesUsd / 2).toFixed(2)}`}>
-              round trip ${rt.totalUsd.toFixed(2)}
-              {ddLeft > 0 ? ` (${((rt.totalUsd / ddLeft) * 100).toFixed(0)}% of DD left)` : ''}
-            </span>
-          )}
           <span className={s.slTicks && riskUsd(units, s.slTicks, tick) > ddLeft ? 'neg' : ''}>
             {s.bracketsOn && s.slTicks ? `risk $${riskUsd(units, s.slTicks, tick).toFixed(2)} at SL` : 'no SL'}
           </span>
@@ -1018,6 +1021,42 @@ export function App() {
           {units > maxU + 1e-9 && maxU > 0 && <span className="neg">over max size</span>}
           {live && s.liveSizeCap > 0 && units > s.liveSizeCap + 1e-12 && <span className="neg">over LIVE cap {s.liveSizeCap}u</span>}
         </div>
+        <div className="coststrip">
+          <span
+            className={`gate ${gate ?? 'learning'}`}
+            title={
+              gate
+                ? `spread vs this market's last 5 min: cheap = at or below the median (${((m.spreadWin.quantile(0.5) ?? 0) * tick).toFixed(dec)}), wide = above p90 (${((p90 ?? 0) * tick).toFixed(dec)})`
+                : 'collecting a few minutes of spread history before judging'
+            }
+          >
+            <i />
+            spread {spread === undefined ? '—' : (spread * tick).toFixed(dec)} · {gate === 'cheap' ? 'CHEAP to cross' : gate === 'normal' ? 'normal' : gate === 'wide' ? 'WIDE — wait or use a limit' : 'learning…'}
+          </span>
+          {rtBuy && (
+            <span className={`fillest ${rtBuy.entry.slipTicks > 0 || !rtBuy.entry.complete ? 'slip' : ''}`} title={`buy ${units} walks ${rtBuy.entry.levels} ask level(s), worst ${(rtBuy.entry.worstTicks * tick).toFixed(dec)}`}>
+              BUY ≈ <b>{fillTxt(rtBuy)}</b> {!rtBuy.entry.complete ? '· book too thin' : rtBuy.entry.slipTicks > 0 ? `· slip ${rtBuy.entry.slipTicks.toFixed(1)}t` : '· no slip'}
+            </span>
+          )}
+          {rtSell && (
+            <span className={`fillest ${rtSell.entry.slipTicks > 0 || !rtSell.entry.complete ? 'slip' : ''}`} title={`sell ${units} walks ${rtSell.entry.levels} bid level(s), worst ${(rtSell.entry.worstTicks * tick).toFixed(dec)}`}>
+              SELL ≈ <b>{fillTxt(rtSell)}</b> {!rtSell.entry.complete ? '· book too thin' : rtSell.entry.slipTicks > 0 ? `· slip ${rtSell.entry.slipTicks.toFixed(1)}t` : '· no slip'}
+            </span>
+          )}
+          {breakEven !== undefined && (
+            <span
+              className={ddLeft > 0 && breakEven * units > 0.1 * ddLeft ? 'neg' : ''}
+              title="points price must move your way to cover crossing the spread both ways, slippage and both taker fees"
+            >
+              break-even <b>{breakEven.toFixed(2)} pts</b> (${(breakEven * units).toFixed(2)}{ddLeft > 0 ? ` · ${(((breakEven * units) / ddLeft) * 100).toFixed(0)}% of DD left` : ''})
+            </span>
+          )}
+          {edge !== undefined && (
+            <span className={`edge ${edge < 1.5 ? 'bad' : edge < 2 ? 'meh' : 'good'}`} title="your TP distance as a multiple of the all-in break-even move. Under 2× the trade mostly pays the spread.">
+              TP {tpPts.toFixed(dec)} pts = <b>{edge.toFixed(1)}×</b> cost
+            </span>
+          )}
+        </div>
         <div className="buttons">
           <button
             className="buy"
@@ -1025,6 +1064,7 @@ export function App() {
             onClick={() => market('buy')}
           >
             BUY MKT
+            {rtBuy && <small>≈ {fillTxt(rtBuy)}</small>}
           </button>
           <button
             className="sell"
@@ -1032,6 +1072,7 @@ export function App() {
             onClick={() => market('sell')}
           >
             SELL MKT
+            {rtSell && <small>≈ {fillTxt(rtSell)}</small>}
           </button>
           <button disabled={!pos.qty} onClick={breakevenNow}>
             B/E

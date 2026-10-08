@@ -102,6 +102,18 @@ The position strip also shows **points to your fail floor**, POC and value area,
 cumulative delta with a sparkline, and the bid/ask split of visible liquidity. Volume, footprint
 and delta count from when the panel opens.
 
+**Cost panel** (above the buttons): what an entry really costs, before you click
+- **Spread light:** green **CHEAP** = the spread is at or below this market's median for the last
+  5 min, amber = normal, red **WIDE** = above its p90 (wait, or use a limit). It shows
+  "learning…" for the first few minutes.
+- **BUY ≈ / SELL ≈:** your fill price for the current size, worked out from the live book. Amber
+  **slip** means your size reaches past the best price. The estimate also shows on the BUY MKT /
+  SELL MKT buttons.
+- **Break-even:** points price must move your way to cover the spread both ways, any slippage and
+  both taker fees, plus its $ and share of your drawdown room.
+- **TP = N× cost:** your TP distance divided by break-even. Under 2× (amber/red) the trade mostly
+  pays the spread.
+
 **Sizing and brackets** (bottom bar)
 - **Size** can be in units, USD notional (like Vest's own ticket) or $ risk at the stop. The
   equivalent CME contracts, notional, leverage and round-trip cost are shown underneath.

@@ -270,3 +270,22 @@ b { font-weight: 600; }
 .lrow .prof.poc em { color: #fff; font-weight: 700; }
 .lrow .prof .plabel { margin-left: auto; margin-right: 6px; font-size: 9px; letter-spacing: 0.08em; color: #e879f9; }
 .lrow .prof .plabel.poc { color: #fff; }
+
+/* ───── v0.9 cost panel: fill estimate, break-even, spread gate ───── */
+.coststrip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 6px 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
+.coststrip b { color: var(--text); }
+.coststrip .gate { display: inline-flex; align-items: center; gap: 6px; padding: 2px 8px; border-radius: 10px; font-weight: 600; }
+.coststrip .gate i { width: 9px; height: 9px; border-radius: 50%; display: inline-block; }
+.coststrip .gate.cheap { background: #0f2a1c; color: #4ade80; }
+.coststrip .gate.cheap i { background: #4ade80; }
+.coststrip .gate.normal { background: #2a2410; color: #facc15; }
+.coststrip .gate.normal i { background: #facc15; }
+.coststrip .gate.wide { background: #2a0f12; color: #f87171; }
+.coststrip .gate.wide i { background: #f87171; }
+.coststrip .gate.learning { background: #141a26; }
+.coststrip .gate.learning i { background: #566070; }
+.coststrip .fillest.slip, .coststrip .fillest.slip b { color: #facc15; }
+.coststrip .edge.good b { color: #4ade80; }
+.coststrip .edge.meh b { color: #facc15; }
+.coststrip .edge.bad b { color: #f87171; }
+.buttons button small { display: block; font-size: 10px; font-weight: 400; opacity: 0.85; }
