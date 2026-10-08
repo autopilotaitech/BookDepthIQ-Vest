@@ -1,14 +1,15 @@
 # Live orders: build spec
 
-**Status: BUILT in v0.5.0, SHAPES UNVERIFIED (2026-10-08).** No HAR was captured. On 2026-10-08
-the owner waived §0.1 and accepted the terms risk (§0.2), so the §3 shapes were built as written. They
-are verified on §6.2 and §6.3 against the panel's LIVE request/response log. The code is in
+**Status: BUILT and VERIFIED IN LIVE USE (2026-10-08).** No HAR was captured: the owner waived §0.1
+and accepted the terms risk (§0.2), so the §3 shapes were built as written, then every LIVE path was
+used for real on 2026-10-08 (market and limit entries, legs, B/E, flatten, cancel, order and leg
+drag). Shapes added later (limit entry, cancel/re-place move, private push socket) were read from
+Vest's own web-app code, not guessed. The code is in
 `src/vest/tradingShapes.ts` (every body and reader, in one place), `src/vest/trading.ts` (HTTP and
 auth), `src/live/` (rules and session), and `web/public/vest-*.js` (token hook). Read `DESIGN.md`
 and `CLAUDE.md` first.
 
-The person who builds this owns its correctness. Every request shape below is **unverified**:
-Vest publishes no trading API docs ("coming soon" on docs.vestmarkets.com). The shapes are facts
+The person who builds this owns its correctness. Vest publishes no trading API docs ("coming soon" on docs.vestmarkets.com). The shapes are facts
 read from Vest's own web app traffic as used by the public `xAmped/Vest-Copier` script. Facts only;
 do not copy that script's code, because its license forbids edited copies.
 
@@ -55,7 +56,7 @@ panel (extension page): reads storage.session → VestTrading client → api-gat
 
 Every order request carries the **account** token and a fresh `Idempotency-Key: <uuid>` header.
 
-## 3. Endpoints (unverified until the HAR matches)
+## 3. Endpoints (verified in live use 2026-10-08)
 
 Reads:
 
@@ -99,9 +100,11 @@ Known venue behaviour (per Vest-Copier, verify):
   settings drawer values are paper-only.
 - Poll positions and orders every ~1.5 s (watch `x-ratelimit-remaining`) and accounts every ~10 s.
   Vest's position is the truth; never derive it locally.
-- v1 actions: BUY MKT / SELL MKT with TP/SL from the point boxes (legs priced from the expected
-  fill: ask for long, bid for short), FLATTEN, B/E, CANCEL ALL. Ladder-click limit/stop entries,
-  adds and reverse stay paper-only in v1, disabled in LIVE with a tooltip.
+- Actions: BUY MKT / SELL MKT with TP/SL from the point boxes (legs priced from the expected
+  fill: ask for long, bid for short), ladder-click LIMIT entries (`orderType:"limit"`, GTC, legs from
+  the limit price), drag a resting limit (cancel, then re-place the remainder with legs shifted, as
+  Vest's app does), drag a TP/SL leg (PUT), FLATTEN, B/E, CANCEL ALL. Vest has no stop entry type;
+  adds and reverse stay paper-only.
 - After an entry fills, re-anchor TP/SL to `openPrice ± points` with PUT if they differ by more than
   one tick. The fill can differ from the reference price.
 - Every write logs `→ request` and `← status + body` to the panel log.
@@ -131,5 +134,5 @@ Known venue behaviour (per Vest-Copier, verify):
 5. FLATTEN: flat on Vest, with no legs or orders left resting.
 6. Only then raise the size cap.
 
-Done = all six pass, and the HAR, the request log and a screenshot of each step are saved in
-`docs/live-verification/`.
+Done: steps 2–5 were passed in real use on 2026-10-08, and the size cap was then turned off by the
+owner (§5.3).

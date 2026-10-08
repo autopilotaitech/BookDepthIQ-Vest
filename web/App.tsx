@@ -199,7 +199,7 @@ export function App() {
   };
   const act = actOuter;
   const actAsync = (p: Promise<Result>) => void p.then(act, (e: unknown) => act({ ok: false, message: String(e) }));
-  const paperOnly = (what: string) => act({ ok: false, message: `LIVE v1: ${what} is paper-only` });
+  const paperOnly = (what: string) => act({ ok: false, message: `LIVE: ${what} is paper-only for now` });
 
   /** PAPER → LIVE: Vest login, account, canTrade, then an explicit confirm. No hotkey does this. */
   const toLive = async () => {
@@ -1077,7 +1077,7 @@ export function App() {
           <button disabled={!pos.qty} onClick={breakevenNow}>
             B/E
           </button>
-          <button disabled={!pos.qty || live} title={live ? 'paper-only in LIVE v1' : undefined} onClick={reverse}>
+          <button disabled={!pos.qty || live} title={live ? 'reverse is paper-only for now' : undefined} onClick={reverse}>
             REVERSE
           </button>
           {/* Cancel and flatten are never disabled. */}

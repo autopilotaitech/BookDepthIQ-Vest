@@ -15,7 +15,7 @@ import {
 import type { SymbolInfo } from '../vest/types.js';
 import { DEFAULT_LIVE_SIZE_CAP, bracketTicks, breakevenTicks, liveEntryCheck, reanchorPlan, resolveLeverage, type Check } from './rules.js';
 
-// The LIVE side of the panel: Vest account state, polling, and the v1 actions (LIVE-ORDERS-SPEC §4).
+// The LIVE side of the panel: Vest account state, push + polling, and the actions (LIVE-ORDERS-SPEC §4).
 // Vest's position is the truth — nothing here derives a position locally.
 //
 // Safety (spec §5):
@@ -161,7 +161,7 @@ export class LiveSession {
     if (v && v.hooked === 0) return `the panel could not reach the Vest tab (${v.error ?? 'no hook answer'}) — reload the Vest tab`;
     if (h && h.bearer === 0 && v) return 'Vest has not sent a logged-in request since the hook loaded — reload the Vest tab (it sends its login on load)';
     if (!h) return 'no report from the Vest tab — reload the extension, then reload next.vestmarkets.com (the hook only loads on a fresh page)';
-    if (h.bearer === 0) return `the Vest tab made ${h.apiCalls} api-gateway call(s) but none carried "Authorization: Bearer" — Vest may authenticate another way (spec §1 unverified)`;
+    if (h.bearer === 0) return `the Vest tab made ${h.apiCalls} api-gateway call(s) but none carried "Authorization: Bearer" — Vest may have changed how it authenticates`;
     if (h.accepted === 0) return `Vest's token was seen but not accepted as a USER token: ${h.reason}. Its claim names: [${h.rejectedKeys.join(', ')}] — the spec expects userId, no accountId, exp`;
     return 'a Vest login was captured but has not reached the panel yet — try again in a second';
   }

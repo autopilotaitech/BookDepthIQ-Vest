@@ -19,9 +19,8 @@ import type { SymbolInfo } from '../src/vest/types.js';
 // Offline tests for the LIVE order path (LIVE-ORDERS-SPEC §6.1). Nothing here touches the network:
 // every request goes to a fake fetch that records it.
 //
-// The expected request bodies are the UNVERIFIED shapes from LIVE-ORDERS-SPEC §3. No HAR was
-// captured; the owner checks them on §6.2 / §6.3 against the panel's request log. When the real shapes
-// are known, update tradingShapes.ts and these expectations together.
+// The expected request bodies are the LIVE-ORDERS-SPEC §3 shapes, verified in live use on
+// 2026-10-08. If Vest changes them, update tradingShapes.ts and these expectations together.
 
 const b64url = (o: unknown) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const jwt = (claims: Record<string, unknown>) => `${b64url({ alg: 'HS256' })}.${b64url(claims)}.sig`;
@@ -153,7 +152,7 @@ describe('number formatting (spec §3: strings, trailing zeros trimmed)', () => 
   });
 });
 
-describe('request bodies (UNVERIFIED spec §3 shapes)', () => {
+describe('request bodies (spec §3 shapes)', () => {
   it('omits a bracket leg that is not set rather than sending an empty one', () => {
     expect(openLimitBody({ symbol: 'NDX-USD-PERP', side: 'short', quantity: '0.1', leverage: '25', price: '31500.25', stopLoss: '31505.25' })).toEqual({
       orderType: 'limit',
@@ -425,7 +424,7 @@ describe('LIVE entry: BUY MKT with brackets', () => {
 
   it('refuses an add while a position is open, and a second click before Vest confirms the first', async () => {
     const held = await liveSession(vest({ positions: [LONG_POS] }));
-    expect((await held.s.enter('buy', 0.001, MKT, { bracketsOn: false, tpTicks: 0, slTicks: 0 })).message).toMatch(/adds/);
+    expect((await held.s.enter('buy', 0.001, MKT, { bracketsOn: false, tpTicks: 0, slTicks: 0 })).message).toMatch(/adding to a position/);
     const { s, calls } = await liveSession(vest());
     expect((await s.enter('buy', 0.001, MKT, { bracketsOn: false, tpTicks: 0, slTicks: 0 })).ok).toBe(true);
     expect((await s.enter('buy', 0.001, MKT, { bracketsOn: false, tpTicks: 0, slTicks: 0 })).message).toMatch(/not confirmed/);

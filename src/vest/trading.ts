@@ -23,8 +23,7 @@ import {
   type RestingOrder,
 } from './tradingShapes.js';
 
-// Vest PRIVATE trading client. THIS FILE CAN PLACE REAL ORDERS. Shapes are UNVERIFIED (see
-// tradingShapes.ts). Rules it enforces (LIVE-ORDERS-SPEC §2, §5):
+// Vest PRIVATE trading client. THIS FILE CAN PLACE REAL ORDERS. Shapes live in tradingShapes.ts. Rules it enforces (LIVE-ORDERS-SPEC §2, §5):
 // - The user token is read from the caller on demand and never stored, logged or sent anywhere
 //   but api-gateway. The account token lives in this object's memory only.
 // - Every write carries the ACCOUNT token and a fresh Idempotency-Key.

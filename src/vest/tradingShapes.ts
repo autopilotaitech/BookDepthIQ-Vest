@@ -1,10 +1,10 @@
 // Request bodies and response readers for Vest's PRIVATE trading API. Pure: no I/O.
 //
-// UNVERIFIED. Vest publishes no trading API docs. Every shape here is taken as-is from
-// docs/LIVE-ORDERS-SPEC.md §2–§3 (Vest's own web-app traffic as used by the public
-// xAmped/Vest-Copier script — facts only, none of its code). No HAR was captured. The owner verifies
-// the shapes on the read-only LIVE check (§6.2) and the first 0.001-unit order (§6.3), against
-// the panel's request/response log. Change a shape HERE and in tests/trading.test.ts, nowhere else.
+// Vest publishes no trading API docs. The shapes come from docs/LIVE-ORDERS-SPEC.md §2–§3 (Vest's
+// own web-app traffic as used by the public xAmped/Vest-Copier script — facts only, none of its
+// code) and, for later additions, from Vest's own web-app code. All verified in live use on
+// 2026-10-08. If Vest changes its app, re-read it rather than guessing. Change a shape HERE and in
+// tests/trading.test.ts, nowhere else.
 
 export type PositionSide = 'long' | 'short';
 
@@ -32,7 +32,7 @@ export function qtyString(units: number, sizeDecimals: number): string {
   return decimalString(units, sizeDecimals);
 }
 
-// ───────────── request bodies (UNVERIFIED, spec §3) ─────────────
+// ───────────── request bodies (spec §3, verified live) ─────────────
 
 export interface OpenMarketInput {
   symbol: string; // WIRE symbol, e.g. "NDX-USD-PERP"
@@ -160,7 +160,7 @@ export function redact(text: string): string {
   return out.replace(JWT_RE, '<jwt redacted>');
 }
 
-// ───────────── response readers (UNVERIFIED field names, spec §3) ─────────────
+// ───────────── response readers (spec §3, verified live) ─────────────
 
 /** Vest may answer with a bare array or wrap it ({positions:[…]}, {data:[…]}). */
 export function listOf(body: unknown, ...keys: string[]): Record<string, unknown>[] {

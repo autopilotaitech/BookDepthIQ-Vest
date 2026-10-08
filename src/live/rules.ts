@@ -39,7 +39,7 @@ export function liveEntryCheck(i: LiveEntryInput): Check {
   if (!i.canTrade) return no('account token says canTrade = false');
   if (i.entryInFlight) return no('previous entry not confirmed by Vest yet');
   if (!i.positionsFresh) return no('Vest positions not read recently — position unknown');
-  if (i.hasPosition) return no('already in a position on this symbol — adds are paper-only in v1');
+  if (i.hasPosition) return no('already in a position on this symbol — adding to a position is paper-only for now');
   if (i.price === undefined || !(i.price > 0)) return no('no price yet');
   if (i.equity === undefined || i.floor === undefined) return no('Vest balance / floor not loaded yet');
   if (i.equity <= i.floor) return no(`account at its floor ($${i.equity.toFixed(2)} ≤ $${i.floor.toFixed(2)})`);

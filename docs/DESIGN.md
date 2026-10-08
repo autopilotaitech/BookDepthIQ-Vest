@@ -4,10 +4,10 @@ A scalping execution panel for Vest Markets perps, starting with NQ-PERP. **Sepa
 from BookDepthIQ.** BookDepthIQ stays futures + Rithmic only, and nothing here ships inside
 BookDepthIQ.exe.
 
-Status as of 2026-10-08: **phases 0 and 1 are done; phases 2 and 3 (v1) are built and UNVERIFIED.**
-The panel starts in PAPER on every launch. Its LIVE mode **can place, modify and cancel real orders
-at Vest**, using the shapes from LIVE-ORDERS-SPEC §3. Those shapes were built without a HAR, by
-the owner's decision on 2026-10-08, and are verified by §6.2 and §6.3 of that spec.
+Status as of 2026-10-08 (v0.9.0): **phases 0–3 are done.** The panel starts in PAPER on every
+launch. Its LIVE mode **places, moves and cancels real orders at Vest** using the request shapes in
+`src/vest/tradingShapes.ts`, read from Vest's own web app. No HAR was captured (the owner's call);
+every LIVE path was then **verified in real trading on 2026-10-08**. Phase 4 (CME depth from BookDepthIQ) is next.
 
 ---
 
@@ -101,7 +101,7 @@ Aggressors do take several levels in one print. One example was a 13-level sell 
 A structural detector (same ms, same side, ≥2 prices) marked them on the ladder and the tape.
 The owner judged it clutter on the DOM, so it was removed. The raw tape still shows every print.
 
-## 2. Execution path (phase 2–3 v1 BUILT, shapes UNVERIFIED — spec: LIVE-ORDERS-SPEC.md)
+## 2. Execution path (phases 2–3 done, verified live 2026-10-08 — spec: LIVE-ORDERS-SPEC.md)
 
 Vest's trading API is undocumented. The endpoints below are what Vest's own web app calls, as
 seen in the public `xAmped/Vest-Copier` script. They were **read for facts only — none of that
@@ -132,8 +132,8 @@ storing credentials anywhere and survives Vest UI redesigns better than DOM-clic
 |---|---|---|---|
 | 0 | market-data client, probe, tests | no | **done** |
 | 1 | panel UI on public data: price ladder, tape, spread, basis, size in NQ-equivalents, plus a LOCAL paper sim (`src/sim/paper.ts`) for click-to-trade, brackets, B/E, flatten | no (local only) | **done** |
-| 2 | auth + read-only account: position, working orders, fills, P&L | no | built v0.5.0; verify per LIVE-ORDERS-SPEC §6.2 (HAR waived by the owner 2026-10-08) |
-| 3 | click-to-trade: market/limit entry, TP/SL in ticks from the panel's boxes, cancel, flatten, B/E, drag stop | **yes** | v1 built (market entry + TP/SL, B/E, flatten, cancel); ladder limit entries and order/leg drag added 2026-10-08 from Vest's own web-app request shapes; stop entries do not exist on Vest; adds/reverse stay paper-only |
+| 2 | auth + read-only account: position, working orders, fills, P&L | no | **done** (v0.5.0; account reads verified live 2026-10-08; v0.6.0 adds Vest's private push socket) |
+| 3 | click-to-trade: market/limit entry, TP/SL in ticks from the panel's boxes, cancel, flatten, B/E, drag stop | **yes** | **done** (market + ladder limit entries with TP/SL, B/E, flatten, cancel, order and leg drag; verified live 2026-10-08). Stop entries do not exist on Vest. Adds/reverse still paper-only |
 | 4 | CME depth/tape overlay from BookDepthIQ over localhost, live basis mapping | no | BookDepthIQ exposes a read-only feed for it |
 
 ---
