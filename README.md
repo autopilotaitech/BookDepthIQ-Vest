@@ -31,19 +31,26 @@ orders, B/E and one-key flatten.
 
 ## Install
 
+**Easy way (no Node needed):**
+
+1. Download the latest `BookDepthIQ-Vest-vX.Y.Z.zip` from
+   [**Releases**](https://github.com/autopilotaitech/BookDepthIQ-Vest/releases/latest).
+2. Unzip it to a folder you'll keep, for example `C:\BookDepthIQ-Vest`.
+3. Open `chrome://extensions` and turn on **Developer mode** (top right).
+4. Click **Load unpacked** and pick the unzipped folder.
+5. Pin the **BookDepthIQ-Vest** icon in the toolbar.
+
+**To update:** download the new zip, unzip it over the same folder, press reload on the extension
+in `chrome://extensions`, then reopen the panel.
+
+**From source:**
+
 ```bash
 git clone https://github.com/autopilotaitech/BookDepthIQ-Vest.git
 cd BookDepthIQ-Vest
 npm install
-npm run build        # creates dist/ — this folder IS the extension
+npm run build        # creates dist/ — load this folder with "Load unpacked"
 ```
-
-1. Open `chrome://extensions` and turn on **Developer mode** (top right).
-2. Click **Load unpacked** and pick the `dist` folder.
-3. Pin the **BookDepthIQ-Vest** icon in the toolbar.
-
-**To update later:** `git pull && npm run build`. Then press reload on the extension in
-`chrome://extensions` and reopen the panel.
 
 ## First run: PAPER
 

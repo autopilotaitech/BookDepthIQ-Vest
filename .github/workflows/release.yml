@@ -1,0 +1,37 @@
+name: Release
+
+# Push a tag like v0.5.1 to publish a ready-to-load extension zip on the Releases page.
+# The tag must match "version" in web/public/manifest.json.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npm run typecheck
+      - run: npm test
+      - run: npm run build
+      - name: Check tag matches manifest version
+        run: |
+          v="$(node -p "require('./web/public/manifest.json').version")"
+          test "v$v" = "$GITHUB_REF_NAME" || { echo "tag $GITHUB_REF_NAME != manifest v$v"; exit 1; }
+      - name: Zip the extension
+        run: cd dist && zip -r "../BookDepthIQ-Vest-$GITHUB_REF_NAME.zip" .
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "BookDepthIQ-Vest-$GITHUB_REF_NAME.zip" \
+            --title "BookDepthIQ-Vest $GITHUB_REF_NAME (beta)" \
+            --notes "Ready-to-load Chrome extension. Unzip, then chrome://extensions → Developer mode → Load unpacked → pick the unzipped folder. See the README for how to use it. Beta: confirm your first trades on Vest's own screen."
