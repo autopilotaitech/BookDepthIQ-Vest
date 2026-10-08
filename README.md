@@ -102,6 +102,17 @@ The position strip also shows **points to your fail floor**, POC and value area,
 cumulative delta with a sparkline, and the bid/ask split of visible liquidity. Volume, footprint
 and delta count from when the panel opens.
 
+**Dual SuperTrend** (same engine and settings as BookDepthIQ)
+- **ST1** (solid line, 60 s candles, 10, ×3.6) and **ST2** (dashed, 15 s candles, 10, ×3.0) are
+  drawn across the ladder at their price, green when the line is support below price, red when it
+  is resistance above, with ▲ ST1 / ▼ ST2 tags on the price column. Off-screen they pin to the
+  ladder edge with the distance in points.
+- They update at each candle close: the line only ratchets with the trend and flips when a candle
+  closes through it **and** that candle's delta agrees.
+- The header badge shows the combined state (▲▲ STRONG LONG … ▼▼ STRONG SHORT) and confidence,
+  and pulses on a flip. The strip shows points from price to each line. Toggle with **ST** in the
+  tape header. It warms up from Vest's recent trades; ST1 needs about 10 one-minute candles.
+
 **Cost panel** (above the buttons): what an entry really costs, before you click
 - **Spread light:** green **CHEAP** = the spread is at or below this market's median for the last
   5 min, amber = normal, red **WIDE** = above its p90 (wait, or use a limit). It shows

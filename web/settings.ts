@@ -33,6 +33,8 @@ export interface Settings {
   showDelta: boolean;
   /** Footprint: diagonal imbalance ratio that lights a Sold/Bought cell (3 = 3:1). */
   imbalanceRatio: number;
+  /** Dual SuperTrend lines on the ladder + header badge (BookDepthIQ's engine and defaults). */
+  showTrend: boolean;
 }
 
 const KEY = 'bdiqvest.settings.v3';
@@ -59,6 +61,7 @@ export const DEFAULTS: Settings = {
   showLog: false,
   showDelta: true,
   imbalanceRatio: 3,
+  showTrend: true,
 };
 
 /** The old 0.01 default was a first-release cap the owner turned off (2026-10-08). */

@@ -404,9 +404,19 @@ export function App() {
   })();
   const toFloorPts = pos.qty ? (equity - floor) / Math.abs(pos.qty) : undefined;
   const implied = s.showIndexRef && m.impliedTicks !== undefined ? Math.round(m.impliedTicks) : undefined;
+  // Dual SuperTrend (BookDepthIQ engine): levels in ticks, drawn as lines across their ladder rows.
+  const tr = m.trendSnap;
+  const st1 = s.showTrend && tr.t1.lineTicks !== undefined && tr.t1.dir !== 'neutral' ? { ticks: tr.t1.lineTicks, dir: tr.t1.dir } : undefined;
+  const st2 = s.showTrend && tr.t2.lineTicks !== undefined && tr.t2.dir !== 'neutral' ? { ticks: tr.t2.lineTicks, dir: tr.t2.dir } : undefined;
+  const stRef = m.lastTradeTicks ?? mid;
+  const stDist = (st: typeof st1) => (st && stRef !== undefined ? (stRef - st.ticks) * tick : undefined);
+  const TREND_LABEL = { strongLong: '▲▲ STRONG LONG', weakLong: '▲ WEAK LONG', chop: '◆ CHOP', weakShort: '▼ WEAK SHORT', strongShort: '▼▼ STRONG SHORT' } as const;
+  const flipFresh = m.lastFlip !== null && Date.now() - m.lastFlip.at < 5000;
   const markers = [
     ...orders.map((o) => ({ label: o.leg ? o.leg.toUpperCase() : o.type === 'stop' ? 'STP' : 'LMT', ticks: o.priceTicks })),
     ...(failRow !== undefined ? [{ label: 'FAIL', ticks: failRow }] : []),
+    ...(st1 ? [{ label: `ST1 ${st1.dir === 'up' ? 'support' : 'resistance'}`, ticks: st1.ticks }] : []),
+    ...(st2 ? [{ label: `ST2 ${st2.dir === 'up' ? 'support' : 'resistance'}`, ticks: st2.ticks }] : []),
   ];
   const pinned = center === null ? [] : offscreen(markers, lo, hi);
   const pinRow = (p: (typeof pinned)[number]) => {
@@ -414,7 +424,7 @@ export function App() {
     return (
       <div
         key={`${p.label}${p.ticks}`}
-        className={`pin ${p.label.startsWith('FAIL') ? 'fail' : p.label.startsWith('TP') ? 'tp' : p.label.startsWith('SL') ? 'sl' : ''}`}
+        className={`pin ${p.label.startsWith('FAIL') ? 'fail' : p.label.startsWith('TP') ? 'tp' : p.label.startsWith('SL') ? 'sl' : p.label.startsWith('ST') ? (p.label.endsWith('support') ? 'st-up' : 'st-down') : ''}`}
         onClick={() => {
           detachBriefly();
           setCenter(bucketOf(p.ticks, g));
@@ -517,6 +527,14 @@ export function App() {
             {liveBusy ? 'LIVE…' : 'LIVE'}
           </button>
         </span>
+        {s.showTrend && (
+          <span
+            className={`trendbadge ${tr.t1.lineTicks === undefined ? 'warm' : tr.state} ${flipFresh ? 'flip' : ''}`}
+            title={`Dual SuperTrend (BookDepthIQ): ST1 60s×10 ×3.6, ST2 15s×10 ×3.0, flip on price + delta.${m.lastFlip ? ` Last flip: ST${m.lastFlip.line} ${m.lastFlip.dir === 'up' ? '▲' : '▼'} ${Math.round((Date.now() - m.lastFlip.at) / 1000)} s ago.` : ''}`}
+          >
+            {tr.t1.lineTicks === undefined ? 'SuperTrend warming up…' : `${TREND_LABEL[tr.state]} ${tr.confidence > 0 ? '+' : ''}${tr.confidence}`}
+          </span>
+        )}
         {!live && !L.tokenOk() && (
           <span className="neg" title="LIVE needs the Vest login from an open next.vestmarkets.com tab">
             no Vest login — {L.loginProblem()}
@@ -693,6 +711,22 @@ export function App() {
             {`${m.cumDelta >= 0 ? '+' : ''}${m.cumDelta.toFixed(2)}`}
           </b>
         </div>
+        {s.showTrend && (
+          <div title="points from the last price to each SuperTrend line (positive = price above the line)">
+            <label>ST1 · ST2</label>
+            <b>
+              {[st1, st2].map((st, i) => {
+                const d = stDist(st);
+                return (
+                  <span key={i} className={st ? (st.dir === 'up' ? 'dup' : 'ddn') : ''}>
+                    {i > 0 ? ' · ' : ''}
+                    {st && d !== undefined ? `${st.dir === 'up' ? '▲' : '▼'} ${d.toFixed(2)}` : '—'}
+                  </span>
+                );
+              })}
+            </b>
+          </div>
+        )}
         <div title="share of visible resting size on the bid / on the ask">
           <label>Bid / ask liq</label>
           <b>
@@ -806,6 +840,8 @@ export function App() {
               t === bk(failRow) ? 'fail' : '',
               bid !== undefined && ask !== undefined && t > bk(bid)! && t + g - 1 < ask ? 'inside' : '',
               volCls === 'out' ? '' : volCls,
+              st1 && t === bk(st1.ticks) ? `st1 st1-${st1.dir}` : '',
+              st2 && t === bk(st2.ticks) ? `st2 st2-${st2.dir}` : '',
             ].join(' ');
             const drop = () => {
               if (!drag) return;
@@ -853,6 +889,8 @@ export function App() {
                   {implied !== undefined && t === bk(implied) && <b className="idx" title="index-implied mid (index + tracked basis). LAGS Vest's own mid by ~600 ms — reference only, not a lead signal.">◆</b>}
                   {formatPrice(t, tick)}
                   {t === bk(failRow) && <b className="failtag">FAIL</b>}
+                  {st1 && t === bk(st1.ticks) && <b className={`sttag st1 ${st1.dir}`}>{st1.dir === 'up' ? '▲' : '▼'} ST1</b>}
+                  {st2 && t === bk(st2.ticks) && <b className={`sttag st2 ${st2.dir}`}>{st2.dir === 'up' ? '▲' : '▼'} ST2</b>}
                 </span>
                 <span
                   className="size ask liq"
@@ -897,6 +935,9 @@ export function App() {
               Vest tape
               <button className="mini" title={s.showLog ? 'hide the log: tape only' : 'show the PAPER / LIVE request log under the tape'} onClick={() => update({ showLog: !s.showLog })}>
                 {s.showLog ? 'hide log' : 'log'}
+              </button>
+              <button className="mini" title={s.showTrend ? 'hide the SuperTrend lines and badge' : 'show the dual SuperTrend (BookDepthIQ) on the ladder'} onClick={() => update({ showTrend: !s.showTrend })}>
+                {s.showTrend ? 'ST on' : 'ST'}
               </button>
               {!s.showDelta && (
                 <button className="mini" title="show the Δ (delta) column on the ladder" onClick={() => update({ showDelta: true })}>

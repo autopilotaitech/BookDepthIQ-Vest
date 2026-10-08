@@ -1,6 +1,7 @@
 import { bestAsk, bestBid, bookFromDepth, midTicks, spreadTicks, type Book } from '../book/book.js';
 import { ladderScore } from '../book/stats.js';
 import { signedQty } from './profile.js';
+import { DualTrend, type DualSnapshot } from './supertrend.js';
 import { PaperBroker, type Result, type Side } from '../sim/paper.js';
 import { failFloor, preTradeCheck, type AccountSpec } from '../sim/account.js';
 import { BasisTracker, SpreadWindow } from './ladderMath.js';
@@ -65,6 +66,13 @@ export class PanelModel {
   soldAt = new Map<number, number>();
   /** Cumulative delta after each trade, newest last (for the header sparkline). */
   cumDeltaHist: number[] = [];
+  /** Dual SuperTrend (BookDepthIQ's engine and defaults), fed by Vest trades. */
+  trend = new DualTrend();
+  trendSnap: DualSnapshot = this.trend.snapshot();
+  /** Most recent flip: which line, new direction, when (ms). */
+  lastFlip: { line: 1 | 2; dir: 'up' | 'down'; at: number } | null = null;
+  /** Live trades fed to the trend; REST seeding only runs before the first one. */
+  private trendLive = 0;
   lastTradeTicks: number | undefined;
   ladder = 0;
   broker: PaperBroker | null = null;
@@ -153,6 +161,9 @@ export class PanelModel {
           const sp = spreadTicks(book);
           if (sp !== undefined) this.spreadWin.push(sp, Date.now());
           this.ladder = ladderScore([...book.bids.sizes, ...book.asks.sizes]).score;
+          const bidSum = book.bids.sizes.reduce((a, b) => a + b, 0);
+          const askSum = book.asks.sizes.reduce((a, b) => a + b, 0);
+          if (bidSum + askSum > 0) this.trend.setBookImbalance((bidSum - askSum) / (bidSum + askSum));
           this.changed();
         },
         onTrade: (sym, msg) => {
@@ -164,6 +175,8 @@ export class PanelModel {
           const sq = signedQty(msg.data.side, q);
           this.deltaAt.set(t, (this.deltaAt.get(t) ?? 0) + sq);
           this.cumDelta += sq;
+          this.feedTrend(msg.data.time, t, q, msg.data.side === 'buy');
+          this.trendLive++;
           const side = msg.data.side === 'buy' ? this.boughtAt : this.soldAt;
           side.set(t, (side.get(t) ?? 0) + q);
           this.cumDeltaHist.push(this.cumDelta);
@@ -207,6 +220,10 @@ export class PanelModel {
     this.boughtAt.clear();
     this.soldAt.clear();
     this.cumDeltaHist = [];
+    this.trend.reset();
+    this.trendSnap = this.trend.snapshot();
+    this.lastFlip = null;
+    this.trendLive = 0;
     this.lastTradeTicks = undefined;
     this.spreadWin = new SpreadWindow();
     this.basisTracker = new BasisTracker();
@@ -240,11 +257,22 @@ export class PanelModel {
         .filter((r) => !seen.has(r.id))
         .map((r) => ({ id: r.id, priceTicks: Math.round(Number(r.price) / tick), qty: Number(r.qty), side: r.side, time: r.time }));
       this.tape = [...this.tape, ...older].sort((a, b) => b.time - a.time).slice(0, 200);
+      // Warm the SuperTrend from Vest's recent trades, oldest first, if no live trade has
+      // reached it yet (feeding older trades after newer ones would break the candles).
+      if (this.trendLive === 0) for (const r of [...older].sort((a, b) => a.time - b.time)) this.feedTrend(r.time, r.priceTicks, r.qty, r.side === 'buy');
       if (this.lastTradeTicks === undefined && this.tape[0]) this.lastTradeTicks = this.tape[0].priceTicks;
       this.changed();
     } catch (e) {
       this.note(`recent trades unavailable: ${(e as Error).message}`);
     }
+  }
+
+  private feedTrend(timeMs: number, priceTicks: number, qty: number, isBuy: boolean): void {
+    const snap = this.trend.onTrade(timeMs, priceTicks, qty, isBuy);
+    if (!snap) return;
+    this.trendSnap = snap;
+    if (snap.t1.switched && snap.t1.dir !== 'neutral') this.lastFlip = { line: 1, dir: snap.t1.dir, at: timeMs };
+    else if (snap.t2.switched && snap.t2.dir !== 'neutral') this.lastFlip = { line: 2, dir: snap.t2.dir, at: timeMs };
   }
 
   /** Stop streaming a symbol that is not on screen and has nothing working. */
