@@ -19,12 +19,22 @@ describe('PAXOR port', () => {
     expect(levelFactorTicks('', DEFAULT_PAXOR, 0.25)).toBe(0);
   });
 
-  it('session: 30 s OR from 08:30:00 Chicago, lines to 17:00, dropped after', () => {
+  it('session: 30 s OR from 08:30:00 Chicago, kept until the next weekday bell (engine behaviour)', () => {
     const s = orSession(T(15, 0), DEFAULT_PAXOR)!;
     expect(new Date(s.start).toISOString()).toBe('2026-10-08T13:30:00.000Z');
     expect(s.orbEnd - s.start).toBe(30_000);
-    expect(new Date(s.end).toISOString()).toBe('2026-10-08T22:00:00.000Z');
-    expect(orSession(T(22, 30), DEFAULT_PAXOR)).toBeUndefined(); // 17:30 Chicago: session over
+    expect(new Date(s.end).toISOString()).toBe('2026-10-09T13:30:00.000Z');
+    // after 17:00 and overnight: still Thursday's OR
+    expect(orSession(T(22, 30), DEFAULT_PAXOR)!.start).toBe(s.start);
+    expect(orSession(Date.UTC(2026, 9, 9, 5, 45), DEFAULT_PAXOR)!.start).toBe(s.start); // 00:45 Fri Chicago
+  });
+
+  it('weekends: the Friday OR carries to the Monday bell', () => {
+    const fri = Date.UTC(2026, 9, 9, 13, 30); // Fri 08:30 CDT
+    const sat = orSession(Date.UTC(2026, 9, 10, 18, 0), DEFAULT_PAXOR)!;
+    expect(sat.start).toBe(fri);
+    expect(new Date(sat.end).toISOString()).toBe('2026-10-12T13:30:00.000Z'); // Mon 08:30 CDT
+    expect(orSession(Date.UTC(2026, 9, 12, 13, 0), DEFAULT_PAXOR)!.start).toBe(fri); // Mon 08:00
   });
 
   it('OR from trades in the window; EXT ladder grows on strict breaks', () => {

@@ -87,6 +87,8 @@ export class PanelModel {
   or: PaxOr | undefined;
   orLoading = false;
   private orKey = '';
+  /** True when the trades since the bell were too many to page in fully (EXT ladder may be short). */
+  orPartial = false;
   /** Live trades that arrive while OR history is loading, replayed after the rebuild. */
   private orPending: Array<{ time: number; ticks: number }> = [];
   private vwapKey = '';
@@ -336,35 +338,46 @@ export class PanelModel {
     this.changed();
   }
 
-  /** Page trades from now back to the OR start, then replay them oldest-first into the OR. */
+  /**
+   * Rebuild the OR from Vest's public trades: first the 30 s bell window itself, then everything
+   * since (≤ 120 pages of 1000), replayed oldest-first so the EXT ladder grows exactly as it would
+   * have live. Live trades that arrive meanwhile are replayed after.
+   */
   private async loadOrHistory(sym: string, key: string, or: PaxOr): Promise<void> {
     this.orLoading = true;
     this.orPending = [];
-    const rows: Array<{ id: string; time: number; ticks: number }> = [];
-    const seen = new Set<string>();
-    let end = Math.min(Date.now(), or.session.end);
-    try {
-      for (let page = 0; page < 60 && end >= or.session.start; page++) {
+    this.orPartial = false;
+    const s = or.session;
+    const page = async (from: number, to: number, maxPages: number): Promise<Array<{ time: number; ticks: number }>> => {
+      const out: Array<{ time: number; ticks: number }> = [];
+      const seen = new Set<string>();
+      let end = to;
+      for (let i = 0; i < maxPages && end >= from; i++) {
         const batch = await fetchTradesBefore(sym, end, 1000);
-        if (key !== this.orKey) return;
-        if (batch.length === 0) break;
+        if (key !== this.orKey) return out;
+        if (batch.length === 0) return out;
         for (const r of batch) {
-          if (seen.has(r.id) || r.time < or.session.start) continue;
+          if (seen.has(r.id) || r.time < from || r.time > to) continue;
           seen.add(r.id);
-          rows.push({ id: r.id, time: r.time, ticks: Math.round(Number(r.price) / this.tick) });
+          out.push({ time: r.time, ticks: Math.round(Number(r.price) / this.tick) });
         }
         const oldest = batch[batch.length - 1]!.time;
-        if (oldest >= end) break;
+        if (oldest < from || oldest >= end) return out;
         end = oldest;
+        if (i === maxPages - 1) this.orPartial = true; // ran out of pages before reaching `from`
       }
-      // Rebuild in time order (history, then live trades that arrived while loading), so the EXT
-      // ladder grows exactly as it would have live.
+      return out;
+    };
+    try {
+      const windowRows = await page(s.start, s.orbEnd - 1, 5);
+      const postRows = Date.now() > s.orbEnd ? await page(s.orbEnd, Math.min(Date.now(), s.end), 120) : [];
+      if (key !== this.orKey) return;
       const fresh = or.blank();
-      rows.sort((a, b) => a.time - b.time);
+      const rows = [...windowRows, ...postRows].sort((x, y) => x.time - y.time);
       for (const r of rows) fresh.add(r.time, r.ticks);
       const last = rows.length ? rows[rows.length - 1]!.time : -Infinity;
       for (const p of this.orPending) if (p.time > last) fresh.add(p.time, p.ticks);
-      if (key === this.orKey) this.or = fresh;
+      this.or = fresh;
     } catch (e) {
       this.note(`opening range history unavailable: ${(e as Error).message}`);
     } finally {

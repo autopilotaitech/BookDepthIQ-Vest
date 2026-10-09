@@ -132,8 +132,9 @@ and delta count from when the panel opens.
   as solid lines (blue high, red-orange low); dashed and marked "forming" during those 30 s.
 - **EXT rungs** every 65 pts on NQ / 15 pts on ES beyond the range; each time price breaks the
   outermost rung the next one appears (EXT1, EXT2, …). Optional mid line.
-- Lines run until 17:00 Chicago. Opening the panel late is fine: it pages in the session's trades
-  from Vest. The strip shows the range, its size in points, and whether price is above, inside or
+- Like BookDepthIQ's engine, the range stays up until the next weekday bell (Friday's carries to
+  Monday) and the EXT ladder keeps growing until then. Opening the panel late is fine: it pages in
+  the bell window and every trade since from Vest (a busy day can take a few seconds). The strip shows the range, its size in points, and whether price is above, inside or
   below it. Settings → Indicators → RTH opening range (shown only on NQ and ES).
 
 **Cost panel** (above the buttons): what an entry really costs, before you click

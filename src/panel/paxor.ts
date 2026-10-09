@@ -2,7 +2,9 @@
 // computePaxOr, RTH mode), the owner's own logic. Pure: no I/O.
 //
 // - The OR is the high/low of trades in [08:30:00, 08:30:30) America/Chicago (30-second window).
-// - Lines run from the OR to the session end (17:00 Chicago); after that the OR is dropped.
+// - The OR stays until the NEXT weekday bell, as BookDepthIQ's engine OR store does (it only
+//   resets when the next window starts; the live chart draws the engine's OR first). The EXT
+//   ladder keeps growing on any later trade until then. No weekend bells (CME RTH is Mon–Fri).
 // - EXT rungs: the first sits `levelPoints` beyond OR H / OR L (NQ 65 pts, ES 15 pts). Each time
 //   price strictly breaks the outermost rung, the next rung is added one more `levelPoints` out.
 // - NQ and ES families only (the owner's request for Vest). The root comes from the DISPLAY symbol
@@ -58,17 +60,26 @@ function secs(s: string): number {
   return m ? Number(m[3] ?? 0) : 0;
 }
 
+function weekdayAt(ms: number, timeZone: string): number {
+  const d = new Intl.DateTimeFormat('en-US', { timeZone, weekday: 'short' }).format(new Date(ms));
+  return ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(d);
+}
+
 /**
- * The session that applies at `now`: OR window [start, start + duration) and the line end.
- * Undefined once the session has ended (BookDepthIQ drops the OR then) or for bad times.
+ * The OR that applies at `now`: the most recent WEEKDAY bell at or before now, its window
+ * [start, start + duration), and `end` = when the next weekday bell replaces it.
  */
 export function orSession(now: number, cfg: PaxOrCfg): { start: number; orbEnd: number; end: number } | undefined {
   const w = sessionWindow(now, hhmm(cfg.startTime), hhmm(cfg.endTime), cfg.timezone);
   if (!w) return undefined;
-  const start = w.from + secs(cfg.startTime) * 1000;
-  const end = w.to + secs(cfg.endTime) * 1000;
-  if (now > end) return undefined;
-  return { start, orbEnd: start + Math.max(1, Math.floor(cfg.durationSec)) * 1000, end };
+  const day = 86_400_000;
+  let start = w.from + secs(cfg.startTime) * 1000;
+  if (start > now) start -= day; // seconds part of the bell not reached yet today
+  // Step back over weekend bells (DST shifts are absorbed: the wall-clock bell is re-derived below).
+  for (let i = 0; i < 3 && [0, 6].includes(weekdayAt(start, cfg.timezone)); i++) start -= day;
+  let next = start + day;
+  for (let i = 0; i < 3 && [0, 6].includes(weekdayAt(next, cfg.timezone)); i++) next += day;
+  return { start, orbEnd: start + Math.max(1, Math.floor(cfg.durationSec)) * 1000, end: next };
 }
 
 export interface OrLevel {

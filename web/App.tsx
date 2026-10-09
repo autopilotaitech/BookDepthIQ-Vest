@@ -743,7 +743,7 @@ export function App() {
                 <legend>
                   <label><input type="checkbox" checked={ind.orOn} onChange={(e) => setInd({ orOn: e.target.checked })} /> RTH opening range (BookDepthIQ PAXOR)</label>
                 </legend>
-                <span className="muted">08:30:00–08:30:30 Chicago · EXT every {orRoot(m.info?.displaySymbol ?? m.info?.symbol) === 'NQ' ? '65' : '15'} pts · lines to 17:00</span>
+                <span className="muted">08:30:00–08:30:30 Chicago · EXT every {orRoot(m.info?.displaySymbol ?? m.info?.symbol) === 'NQ' ? '65' : '15'} pts · kept until the next bell</span>
                 <label><input type="checkbox" checked={ind.orMid} onChange={(e) => setInd({ orMid: e.target.checked })} /> mid line</label>
               </fieldset>
             )}
@@ -818,8 +818,8 @@ export function App() {
           </div>
         )}
         {m.or && (
-          <div title="RTH opening range (BookDepthIQ PAXOR): 08:30:00–08:30:30 Chicago; EXT every 65 pts NQ / 15 pts ES">
-            <label>OR{m.orLoading ? ' (loading…)' : orForming ? ' (forming)' : ''}</label>
+          <div title="RTH opening range (BookDepthIQ PAXOR): 08:30:00–08:30:30 Chicago, kept until the next weekday bell; EXT every 65 pts NQ / 15 pts ES">
+            <label>OR{m.orLoading ? ' (loading…)' : orForming ? ' (forming)' : m.or && !m.or.formed ? ' (no prints at the bell)' : m.orPartial ? ' (EXT history partial)' : ''}</label>
             <b className="orv">
               {(() => {
                 const h = orLevels.find((l) => l.kind === 'high');
