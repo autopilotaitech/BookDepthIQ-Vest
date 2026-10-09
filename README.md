@@ -80,7 +80,7 @@ Every LIVE launch starts in PAPER again. LIVE is never remembered.
 |---|---|---|
 | **BUY MKT / SELL MKT** buttons | market fill | market order, with TP/SL legs if BRACKET is on |
 | Click the **BUY** / **SELL** column at a price | limit order | **limit order** (GTC) with TP/SL legs at your points from that price |
-| **Shift+click** the BUY / SELL column | stop order | not available: Vest has no stop entry orders |
+| **Shift+click** the BUY / SELL column | stop order | **panel-held stop**: a buy stop above the ask or sell stop below the bid. When a trade prints at or through it, the panel sends a **market** entry with your TP/SL (dashed STP chip; click to cancel, drag to move) |
 | Click an **LMT** chip | cancel | cancel on Vest |
 | Drag an **LMT** chip to another row | move | move on Vest (cancel, then re-place the unfilled size at the new price; TP/SL shift with it) |
 | Drag a **TP** / **SL** chip | move the leg | move the leg on Vest |
@@ -174,6 +174,10 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
   floor, positions must be freshly synced from Vest, and there must be no position already open on
   the symbol. These are the same limits Vest's own ticket enforces.
 - **Optional size cap:** settings → *LIVE size cap*. 0 means off.
+- **Panel-held stops** are the only orders that fire without a click. They live in the panel, not
+  on Vest: close the window, switch instrument or go to PAPER and they are disarmed (the header
+  shows **⚡ N stops armed** while any are live). Each one fires once, through the same checks as a
+  click.
 - **Vest is the source of truth.** Positions, orders and balance come from Vest and are never
   computed locally. Vest pushes account changes over its private socket, and the panel re-reads
   them at once (the account row shows **Vest ⚡ live**). If the push drops, it falls back to

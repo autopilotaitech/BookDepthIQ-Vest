@@ -410,3 +410,7 @@ b { font-weight: 600; }
 .lrow .ptxt { background: inherit; padding: 0 4px; border-radius: 2px; }
 .lrow .sttag, .lrow .hltag { z-index: 5; }
 .lrow .price { background-clip: padding-box; }
+
+/* ───── panel-held stops ───── */
+.chip.heldstop { border: 1px dashed currentColor; background: transparent !important; }
+.stopsbadge { padding: 2px 10px; border-radius: 12px; font-weight: 700; font-size: 12px; background: #3b2a06; color: #facc15; white-space: nowrap; }

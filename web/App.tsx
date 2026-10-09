@@ -180,6 +180,11 @@ export function App() {
   const imbMemo = useRef<{ key: string; buy: Set<number>; sell: Set<number> }>({ key: '', buy: new Set(), sell: new Set() });
   /** Result of the last LIVE action, shown under the banner: a refusal must never look like nothing. */
   const [liveLast, setLiveLast] = useState<Result | null>(null);
+  // Stops fire from the trade feed, not a click: surface their result in the same bar.
+  const stopEventAt = L.stopEvent?.at;
+  useEffect(() => {
+    if (L.stopEvent) setLiveLast({ ok: L.stopEvent.ok, message: L.stopEvent.message });
+  }, [L, stopEventAt]);
 
   // ── price follow, ported from BookDepthIQ's render worker (view.followPrice) ──
   // Following is the normal state and is NOT a saved setting: the ladder centres on the mid on
@@ -368,16 +373,23 @@ export function App() {
     qty: (o.quantity ?? 0) - (o.executedQuantity ?? 0),
     reduceOnly: false,
   }));
-  const orders = live ? [...liveEntries, ...liveLegs] : (broker?.orders ?? []);
+  // Panel-held stops on this symbol as dashed STP chips. Chip id -2000-i ↔ liveStopIds[i].
+  const liveStops = live && m.info ? L.stops.list(m.info.symbol) : [];
+  const liveStopIds = liveStops.map((x) => x.id);
+  const liveStopChips: WorkingOrder[] = liveStops.map((x, i) => ({ id: -2000 - i, side: x.side, type: 'stop' as const, priceTicks: x.ticks, qty: x.units, reduceOnly: false }));
+  const orders = live ? [...liveEntries, ...liveStopChips, ...liveLegs] : (broker?.orders ?? []);
   const ordersAt = (t: number, side: Side) => orders.filter((o) => bucketOf(o.priceTicks, g) === t && o.side === side);
   const pos = live ? { qty: lpos?.qty ?? 0, avgTicks: lpos ? lpos.openPrice / tick : 0 } : (broker?.position ?? { qty: 0, avgTicks: 0 });
   const avgRow = pos.qty !== 0 ? Math.round(pos.avgTicks) : undefined;
 
   const place = (side: Side, t: number, stop: boolean) => {
     if (live) {
-      // Vest has market and limit orders only — no stop entry to send a shift-click to.
-      if (stop) return act({ ok: false, message: 'LIVE: Vest has no stop entry orders (its ticket offers market and limit only) — plain click for a limit' });
       const c = m.marketCtx();
+      // Vest has no stop entry type: the panel holds the stop and fires a MARKET entry (stops.ts).
+      if (stop) {
+        if (c) act(L.armStop(side, t, units, c, { bracketsOn: s.bracketsOn, tpTicks: s.tpTicks, slTicks: s.slTicks }));
+        return;
+      }
       if (c) actAsync(L.enterLimit(side, units, t, c, { bracketsOn: s.bracketsOn, tpTicks: s.tpTicks, slTicks: s.slTicks }));
       return;
     }
@@ -495,8 +507,8 @@ export function App() {
   const orderChip = (o: WorkingOrder) => (
     <span
       key={o.id}
-      className={`chip ${o.leg ?? o.type} ${o.side}`}
-      title={`${o.leg ? o.leg.toUpperCase() + ' ' : ''}${o.side} ${o.type} ${o.qty} — ${live ? (o.leg ? 'on Vest: drag to move' : 'on Vest: click to cancel, drag to move') : 'click to cancel, drag to move'}`}
+      className={`chip ${o.leg ?? o.type} ${o.side} ${live && o.id <= -2000 ? 'heldstop' : ''}`}
+      title={`${o.leg ? o.leg.toUpperCase() + ' ' : ''}${o.side} ${o.type} ${o.qty} — ${live ? (o.id <= -2000 ? 'panel-held STOP (Vest does not see it until it fires a market order): click to cancel, drag to move' : o.leg ? 'on Vest: drag to move' : 'on Vest: click to cancel, drag to move') : 'click to cancel, drag to move'}`}
       onPointerDown={(e) => {
         e.stopPropagation();
         setDrag({ id: o.id, from: o.priceTicks });
@@ -584,6 +596,11 @@ export function App() {
             {liveBusy ? 'LIVE…' : 'LIVE'}
           </button>
         </span>
+        {live && L.stops.size > 0 && (
+          <span className="stopsbadge" title="panel-held stops: they fire a MARKET entry when a trade prints at or through them, only while this window is open and LIVE">
+            ⚡ {L.stops.size} stop{L.stops.size > 1 ? 's' : ''} armed
+          </span>
+        )}
         {s.showTrend && (
           <span
             className={`trendbadge ${tr.t1.lineTicks === undefined ? 'warm' : tr.state} ${flipFresh ? 'flip' : ''}`}
@@ -974,7 +991,10 @@ export function App() {
               if (live) {
                 const c = m.marketCtx();
                 const same = t === bk(drag.from);
-                if (c && drag.id <= -1000) {
+                if (c && drag.id <= -2000) {
+                  const sid = liveStopIds[-2000 - drag.id];
+                  if (sid !== undefined) act(same ? L.cancelStop(sid) : L.moveStop(sid, t, c));
+                } else if (c && drag.id <= -1000) {
                   const oid = liveOrderIds[-1000 - drag.id];
                   if (oid) actAsync(same ? L.cancelOrder(oid) : L.moveOrder(oid, t, c, { bracketsOn: s.bracketsOn, tpTicks: s.tpTicks, slTicks: s.slTicks }));
                 } else if (c && !same && drag.id < 0) {
@@ -992,7 +1012,7 @@ export function App() {
               <div key={t} className={cls} style={gridStyle} onPointerUp={drop}>
                 {levelLines.get(t)?.map((l, i) => <i key={`hl${i}`} className={`hl ${l.cls}`} />)}
                 {levelLines.has(t) && <b className={`hltag ${levelLines.get(t)![0]!.cls}`}>{levelLines.get(t)!.map((l) => l.label).join(' · ')}</b>}
-                <span className="orders buy" title={live ? 'LIVE: click = limit order on Vest (shift-click stops are paper-only: Vest has no stop entries)' : undefined} onClick={(e) => place('buy', t, e.shiftKey)}>
+                <span className="orders buy" title={live ? 'LIVE: click = limit order on Vest · shift-click = panel-held STOP (fires a market order; keep this window open)' : undefined} onClick={(e) => place('buy', t, e.shiftKey)}>
                   {ordersAt(t, 'buy').map(orderChip)}
                 </span>
                 <span className={`fp sold ${imb.sell.has(t) ? 'imb' : ''} ${imb.sellStack.has(t) ? 'stack' : ''}`}>{so ? <em className="fpn">{fmtVol(so)}</em> : ''}</span>
@@ -1030,7 +1050,7 @@ export function App() {
                   {askWalls.has(t) && <b className="wall">WALL</b>}
                 </span>
                 <span className={`fp bought ${imb.buy.has(t) ? 'imb' : ''} ${imb.buyStack.has(t) ? 'stack' : ''}`}>{bo ? <em className="fpn">{fmtVol(bo)}</em> : ''}</span>
-                <span className="orders sell" title={live ? 'LIVE: click = limit order on Vest (shift-click stops are paper-only: Vest has no stop entries)' : undefined} onClick={(e) => place('sell', t, e.shiftKey)}>
+                <span className="orders sell" title={live ? 'LIVE: click = limit order on Vest · shift-click = panel-held STOP (fires a market order; keep this window open)' : undefined} onClick={(e) => place('sell', t, e.shiftKey)}>
                   {ordersAt(t, 'sell').map(orderChip)}
                 </span>
                 {showPnl && <span className={`pnl ${pnl === undefined ? '' : pnlClass(pnl)}`}>{pnl === undefined ? '' : fmtUsd(pnl)}</span>}

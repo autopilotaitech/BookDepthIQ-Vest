@@ -1,5 +1,6 @@
 import type { Side } from '../sim/paper.js';
 import { VestPrivateSocket, type PrivateSocketFactory } from '../vest/privateWs.js';
+import { StopBook, type ArmedStop } from './stops.js';
 import { VestTrading, type FetchLike } from '../vest/trading.js';
 import {
   claimsExpMs,
@@ -104,6 +105,10 @@ export class LiveSession {
   private readonly push: VestPrivateSocket | null;
   /** True while Vest's private socket is connected and pushing account events. */
   pushOpen = false;
+  /** Panel-held stop entries (fire a MARKET entry on a trade at/through the stop). See stops.ts. */
+  readonly stops = new StopBook();
+  /** Latest stop event (armed / fired / refused / disarmed), for the panel's result bar. */
+  stopEvent: (Check & { at: number }) | null = null;
   private readonly setTimer: (fn: () => void, ms: number) => unknown;
   private readonly clearTimer: (h: unknown) => void;
 
@@ -241,6 +246,7 @@ export class LiveSession {
   goPaper(): void {
     if (this.mode === 'paper') return;
     this.mode = 'paper';
+    this.disarmStops('back to PAPER');
     this.write('=== back to PAPER');
     // Keep polling while Vest still holds something, so the panel can show it and flatten it.
     if (!this.hasExposure()) {
@@ -551,6 +557,8 @@ export class LiveSession {
       }
     }
     if (held.length === 0) out.push('no Vest position');
+    const disarmed = this.stops.clear(sym);
+    if (disarmed) out.push(`disarmed ${disarmed} stop(s)`);
     const c = await this.cancelResting(sym);
     good = good && c.ok;
     out.push(c.message);
@@ -561,9 +569,69 @@ export class LiveSession {
 
   /** Cancel resting orders (on `symbol`, or every one when omitted). NEVER gated. */
   async cancelAll(symbol?: string): Promise<Check> {
+    const disarmed = this.stops.clear(symbol);
     const r = await this.cancelResting(symbol);
     this.kick(0);
+    return disarmed ? { ok: r.ok, message: `${r.message}; disarmed ${disarmed} stop(s)` } : r;
+  }
+
+  // ───────────── panel-held stop entries ─────────────
+
+  /** Arm a buy stop (above the ask) or sell stop (below the bid). LIVE only, needs a fresh login. */
+  armStop(side: Side, ticks: number, units: number, m: MarketCtx, br: BracketCtx): Check {
+    if (this.mode !== 'live') return no('stops are LIVE only (PAPER has its own stop orders)');
+    if (!this.tokenOk()) return no(`no Vest login: ${this.loginProblem()}`);
+    const f = 10 ** m.info.sizeDecimals;
+    const r = this.stops.arm(
+      { symbol: m.info.symbol, side, ticks, units: Math.round(units * f) / f, bracketsOn: br.bracketsOn, tpTicks: br.tpTicks, slTicks: br.slTicks, armedAt: this.deps.now() },
+      m.bid,
+      m.ask,
+    );
+    if (r.ok) this.write(`⚡ ${side.toUpperCase()} STOP ${r.stop!.units} armed @ ${priceString(ticks, m.tick, m.info.priceDecimals)} — panel-held, fires a MARKET entry`);
+    this.deps.onChange();
+    return r.ok ? ok(`${side.toUpperCase()} STOP armed @ ${priceString(ticks, m.tick, m.info.priceDecimals)} (panel-held: keep this window open)`) : no(r.message);
+  }
+
+  cancelStop(id: number): Check {
+    const done = this.stops.cancel(id);
+    if (done) this.write('stop cancelled');
+    this.deps.onChange();
+    return done ? ok('stop cancelled') : no('stop not armed any more');
+  }
+
+  moveStop(id: number, ticks: number, m: MarketCtx): Check {
+    const r = this.stops.move(id, ticks, m.bid, m.ask);
+    if (r.ok) this.write(`stop moved to ${priceString(ticks, m.tick, m.info.priceDecimals)}`);
+    this.deps.onChange();
     return r;
+  }
+
+  /** Disarm every stop (connection lost, instrument switch, PAPER, login gone). Never sends anything. */
+  disarmStops(reason: string): void {
+    const n = this.stops.clear();
+    if (!n) return;
+    this.write(`! ${n} stop(s) DISARMED: ${reason}`);
+    this.stopEvent = { ok: false, message: `${n} stop(s) disarmed — ${reason}`, at: this.deps.now() };
+    this.deps.onChange();
+  }
+
+  /**
+   * A trade printed on `m.info.symbol`. Fires any stop it hits as a MARKET entry with the stop's own
+   * size and brackets, through the normal entry checks. One-shot: a refused stop is gone, and says why.
+   */
+  async onMarketTrade(priceTicks: number, m: MarketCtx): Promise<void> {
+    if (this.stops.size === 0) return;
+    if (this.mode !== 'live') return this.disarmStops('not in LIVE');
+    if (!this.tokenOk()) return this.disarmStops('Vest login expired');
+    const fired: ArmedStop[] = this.stops.onTrade(m.info.symbol, priceTicks);
+    for (const s of fired) {
+      const px = priceString(s.ticks, m.tick, m.info.priceDecimals);
+      this.write(`⚡ ${s.side.toUpperCase()} STOP @ ${px} hit (trade ${priceString(priceTicks, m.tick, m.info.priceDecimals)}) — sending MARKET ${s.units}`);
+      const r = await this.enter(s.side, s.units, m, { bracketsOn: s.bracketsOn, tpTicks: s.tpTicks, slTicks: s.slTicks });
+      this.stopEvent = { ok: r.ok, message: `STOP @ ${px}: ${r.message}`, at: this.deps.now() };
+      this.write(`${r.ok ? '✓' : '✗'} STOP @ ${px}: ${r.message}`);
+      this.deps.onChange();
+    }
   }
 
   private async cancelResting(symbol?: string): Promise<Check> {

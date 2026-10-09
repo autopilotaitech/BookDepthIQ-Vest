@@ -164,6 +164,8 @@ export class PanelModel {
       {
         onStatus: (s, d) => {
           this.status = s === 'open' ? 'live' : 'reconnecting';
+          // Stops fire on trades from this socket: without it they would sit blind.
+          if (s !== 'open') this.live.disarmStops('market data connection lost');
           this.statusDetail = d ?? '';
           this.changed();
         },
@@ -199,6 +201,10 @@ export class PanelModel {
           this.feedTrend(msg.data.time, t, q, msg.data.side === 'buy');
           this.onIndicatorTrade(msg.data.time, t, q);
           this.trendLive++;
+          if (this.live.stops.size) {
+            const ctx = this.marketCtx();
+            if (ctx) void this.live.onMarketTrade(t, ctx);
+          }
           const side = msg.data.side === 'buy' ? this.boughtAt : this.soldAt;
           side.set(t, (side.get(t) ?? 0) + q);
           this.cumDeltaHist.push(this.cumDelta);
@@ -230,6 +236,7 @@ export class PanelModel {
     const info = this.table?.resolve(name);
     if (!info || !this.sock) return false;
     const prev = this.info?.symbol;
+    if (prev && prev !== info.symbol) this.live.disarmStops('instrument switched');
     this.info = info;
     if (prev && prev !== info.symbol) this.releaseIfIdle(prev);
     this.tick = tickSizeOf(info);

@@ -44,7 +44,8 @@ These are not negotiable. A PR that breaks one will not be merged.
 
 1. **Manual only.** No algos, no auto-entry, no copy-trading, and no multi-account features. Vest's
    Prop Terms allow one account per person. Every order must come from a user click or an armed
-   hotkey.
+   hotkey. The single exception is the panel-held stop entry the user arms on the ladder
+   (`src/live/stops.ts`); don't add other orders that fire without a click.
 2. **Never guess a request body.** Vest has no public trading API. A new order shape must come from
    Vest's own web app: captured traffic from your own session, or Vest's web-app code. Put the
    source in the PR description. All request bodies live in **one file**,

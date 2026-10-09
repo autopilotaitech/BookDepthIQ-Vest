@@ -404,6 +404,55 @@ describe('LIVE entry: BUY MKT with brackets', () => {
     expect(w[0]).toMatchObject({ method: 'PUT', path: '/v3/positions/stop-loss', body: { positionId: 'P1', executionType: 'market', triggerPrice: '31447.5', stopLossId: 'S1' } });
   });
 
+  it('panel-held BUY STOP: nothing below it; at the stop it sends ONE market entry with its brackets', async () => {
+    const { s, calls } = await liveSession(vest());
+    // ask 125804 → buy stop must be above it
+    expect(s.armStop('buy', 125800, 0.001, MKT, { bracketsOn: false, tpTicks: 0, slTicks: 0 }).ok).toBe(false);
+    expect(s.armStop('buy', 125820, 0.001, MKT, { bracketsOn: true, tpTicks: 40, slTicks: 20 }).ok).toBe(true);
+    await s.onMarketTrade(125819, MKT);
+    expect(writes(calls)).toHaveLength(0);
+    await s.onMarketTrade(125820, MKT);
+    const w = writes(calls);
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatchObject({ method: 'POST', path: '/v3/positions/open' });
+    expect(w[0]!.body).toMatchObject({ orderType: 'market', side: 'long', quantity: '0.001', timeInForce: 'IOC' });
+    expect((w[0]!.body as { takeProfits?: unknown[] }).takeProfits).toHaveLength(1);
+    expect(s.stops.size).toBe(0); // one-shot
+    expect(s.stopEvent?.ok).toBe(true);
+    await s.onMarketTrade(125900, MKT);
+    expect(writes(calls)).toHaveLength(1);
+  });
+
+  it('SELL STOP fires on a trade at or below it', async () => {
+    const { s, calls } = await liveSession(vest());
+    expect(s.armStop('sell', 125790, 0.001, MKT, { bracketsOn: false, tpTicks: 0, slTicks: 0 }).ok).toBe(true);
+    await s.onMarketTrade(125785, MKT);
+    expect(writes(calls)[0]!.body).toMatchObject({ orderType: 'market', side: 'short' });
+  });
+
+  it('stops never fire from PAPER, and CANCEL ALL / PAPER disarm them without sending anything', async () => {
+    const { s, calls } = await liveSession(vest());
+    s.armStop('buy', 125820, 0.001, MKT, { bracketsOn: false, tpTicks: 0, slTicks: 0 });
+    await s.cancelAll('NDX-USD-PERP');
+    expect(s.stops.size).toBe(0);
+    s.armStop('buy', 125820, 0.001, MKT, { bracketsOn: false, tpTicks: 0, slTicks: 0 });
+    s.goPaper();
+    expect(s.stops.size).toBe(0);
+    await s.onMarketTrade(125900, MKT);
+    expect(writes(calls)).toHaveLength(0);
+    expect(s.armStop('buy', 125820, 0.001, MKT, { bracketsOn: false, tpTicks: 0, slTicks: 0 }).ok).toBe(false);
+  });
+
+  it('a triggered stop still goes through the entry checks (refused = consumed, with the reason)', async () => {
+    const { s, calls } = await liveSession(vest({ positions: [LONG_POS] })); // already long → adds refused
+    s.armStop('buy', 125820, 0.001, MKT, { bracketsOn: false, tpTicks: 0, slTicks: 0 });
+    await s.onMarketTrade(125820, MKT);
+    expect(writes(calls)).toHaveLength(0);
+    expect(s.stops.size).toBe(0);
+    expect(s.stopEvent?.ok).toBe(false);
+    expect(s.stopEvent?.message).toMatch(/adding to a position/);
+  });
+
   it('refuses: zero qty, over the size cap, canTrade=false', async () => {
     const { s, calls } = await liveSession(vest());
     s.sizeCap = 0.01; // the cap is off by default; when set, it refuses

@@ -103,8 +103,10 @@ Known venue behaviour (per Vest-Copier, verify):
 - Actions: BUY MKT / SELL MKT with TP/SL from the point boxes (legs priced from the expected
   fill: ask for long, bid for short), ladder-click LIMIT entries (`orderType:"limit"`, GTC, legs from
   the limit price), drag a resting limit (cancel, then re-place the remainder with legs shifted, as
-  Vest's app does), drag a TP/SL leg (PUT), FLATTEN, B/E, CANCEL ALL. Vest has no stop entry type;
-  adds and reverse stay paper-only.
+  Vest's app does), drag a TP/SL leg (PUT), FLATTEN, B/E, CANCEL ALL. Vest has no stop entry type,
+  so shift-click arms a **panel-held stop** (`src/live/stops.ts`): on a trade at or through it the
+  panel sends one MARKET entry (the only order sent without a click — owner's exception to rule 2,
+  2026-10-09). Adds and reverse stay paper-only.
 - After an entry fills, re-anchor TP/SL to `openPrice ± points` with PUT if they differ by more than
   one tick. The fill can differ from the reference price.
 - Every write logs `→ request` and `← status + body` to the panel log.

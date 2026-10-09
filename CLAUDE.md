@@ -8,7 +8,11 @@ here, and do not add Vest code to BookDepthIQ. Read `docs/DESIGN.md` before chan
 1. **No order is sent without the owner's explicit go.** That covers every path, paper included. A
    test that would hit a Vest write endpoint needs the same go.
 2. **Manual only.** No algo, no auto-entry, **no copier**. Vest's Prop Terms §2 allow one
-   account per person.
+   account per person. **One exception, approved by the owner on 2026-10-09:** panel-held stop
+   entries (`src/live/stops.ts`). The user arms a buy/sell stop at their own price, size and
+   brackets; on a trade at or through it the panel sends ONE market entry through the normal entry
+   checks. They disarm on PAPER, instrument switch, lost market data or an expired login. Nothing
+   else may send an order without a click.
 3. **Never guess an endpoint payload.** Order shapes come from a HAR captured in the owner's own
    session. Vest has no public API docs.
 4. **Brackets are the user's numbers.** No hard-coded TP/SL distances.
