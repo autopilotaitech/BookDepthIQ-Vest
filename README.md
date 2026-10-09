@@ -121,9 +121,9 @@ and delta count from when the panel opens.
 - **Footprint imbalances:** ratio, minimum volume (% of the busiest row), stack size, and
   **zone lines** for stacked imbalances (▲ support at the bottom of a buy run, ▼ resistance at the
   top of a sell run). Turn the whole thing off per instrument.
-- **Big trades:** prints at or above your size (default 8u ≈ the top 1% of Vest NQ prints) are
-  highlighted on the tape (stronger at 3×) and drawn as lines on the ladder for a set number of
-  minutes, tagged BIG B / BIG S with the size.
+- **Big trades (tape only):** prints at or above your size (default 8u ≈ the top 1% of Vest NQ
+  prints) flash when they hit and stay highlighted on the tape: bold, tinted by side with a side
+  edge, a size bar and "B 12.40" / "S 9.80". At 3× your size they are larger and stronger.
 
 **Cost panel** (above the buttons): what an entry really costs, before you click
 - **Spread light:** green **CHEAP** = the spread is at or below this market's median for the last

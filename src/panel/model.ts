@@ -2,7 +2,7 @@ import { bestAsk, bestBid, bookFromDepth, midTicks, spreadTicks, type Book } fro
 import { ladderScore } from '../book/stats.js';
 import { signedQty } from './profile.js';
 import { DualTrend, type DualSnapshot } from './supertrend.js';
-import { DEFAULT_INDICATORS, type BigPrint, type IndicatorCfg } from './indicators.js';
+import { DEFAULT_INDICATORS, type IndicatorCfg } from './indicators.js';
 import { Vwap, sessionWindow } from './vwap.js';
 import { PaperBroker, type Result, type Side } from '../sim/paper.js';
 import { failFloor, preTradeCheck, type AccountSpec } from '../sim/account.js';
@@ -84,8 +84,7 @@ export class PanelModel {
   vwapLoading = false;
   private vwapKey = '';
   private vwapCheckAt = 0;
-  /** Prints at or above the big-trade size, newest last (kept 2 h). */
-  bigPrints: BigPrint[] = [];
+
   lastTradeTicks: number | undefined;
   ladder = 0;
   broker: PaperBroker | null = null;
@@ -189,7 +188,7 @@ export class PanelModel {
           this.deltaAt.set(t, (this.deltaAt.get(t) ?? 0) + sq);
           this.cumDelta += sq;
           this.feedTrend(msg.data.time, t, q, msg.data.side === 'buy');
-          this.onIndicatorTrade(msg.data.time, t, q, msg.data.side);
+          this.onIndicatorTrade(msg.data.time, t, q);
           this.trendLive++;
           const side = msg.data.side === 'buy' ? this.boughtAt : this.soldAt;
           side.set(t, (side.get(t) ?? 0) + q);
@@ -239,7 +238,6 @@ export class PanelModel {
     this.vwap.reset();
     this.vwapWin = undefined;
     this.vwapKey = '';
-    this.bigPrints = [];
     this.lastFlip = null;
     this.trendLive = 0;
     this.lastTradeTicks = undefined;
@@ -278,8 +276,6 @@ export class PanelModel {
       // Warm the SuperTrend from Vest's recent trades, oldest first, if no live trade has
       // reached it yet (feeding older trades after newer ones would break the candles).
       if (this.trendLive === 0) for (const r of [...older].sort((a, b) => a.time - b.time)) this.feedTrend(r.time, r.priceTicks, r.qty, r.side === 'buy');
-      for (const r of older) if (r.qty >= this.ind.bigMin) this.bigPrints.push({ priceTicks: r.priceTicks, qty: r.qty, side: r.side, time: r.time });
-      this.bigPrints.sort((a, b) => a.time - b.time);
       if (this.lastTradeTicks === undefined && this.tape[0]) this.lastTradeTicks = this.tape[0].priceTicks;
       this.changed();
     } catch (e) {
@@ -293,15 +289,10 @@ export class PanelModel {
     this.refreshVwapSession();
   }
 
-  private onIndicatorTrade(timeMs: number, priceTicks: number, qty: number, side: 'buy' | 'sell'): void {
+  private onIndicatorTrade(timeMs: number, priceTicks: number, qty: number): void {
     if (Date.now() - this.vwapCheckAt > 30_000) this.refreshVwapSession();
     const w = this.vwapWin;
     if (this.ind.vwapOn && w && timeMs >= w.from && timeMs <= w.to) this.vwap.add(priceTicks, qty);
-    if (qty >= this.ind.bigMin) {
-      this.bigPrints.push({ priceTicks, qty, side, time: timeMs });
-      const cut = Date.now() - 2 * 3600_000;
-      while (this.bigPrints.length && this.bigPrints[0]!.time < cut) this.bigPrints.shift();
-    }
   }
 
   /** Recompute the session window; on a new session (or settings change) reset and page in its trades. */

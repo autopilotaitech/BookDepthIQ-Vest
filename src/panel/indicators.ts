@@ -1,5 +1,4 @@
-// Per-instrument indicator settings and the small pure helpers behind them: big trades and
-// stacked-imbalance zones. Pure: no I/O.
+// Per-instrument indicator settings and the stacked-imbalance zone helper. Pure: no I/O.
 
 export interface IndicatorCfg {
   // VWAP
@@ -22,12 +21,8 @@ export interface IndicatorCfg {
   fpLines: boolean;
   // Big trades
   bigOn: boolean;
-  /** A print this size or more (units) is "big". */
+  /** A print this size or more (units) is "big" and is highlighted on the tape. */
   bigMin: number;
-  /** Draw big prints as lines on the ladder. */
-  bigLines: boolean;
-  /** How long a big-print line stays (minutes). */
-  bigLineMin: number;
 }
 
 export const DEFAULT_INDICATORS: IndicatorCfg = {
@@ -45,8 +40,6 @@ export const DEFAULT_INDICATORS: IndicatorCfg = {
   // Measured 2026-10-09 on 6,000 Vest NQ prints: median 3.25u, p99 ≈ 7.75u (most prints are
   // multiples of the market maker's 1.6045 quote). 8u ≈ the top 1%. Tune per instrument.
   bigMin: 8,
-  bigLines: true,
-  bigLineMin: 15,
 };
 
 /** Settings for `symbol`: its saved overrides on top of the defaults. */
@@ -61,26 +54,6 @@ export function parseBands(s: string): number[] {
     .map(Number)
     .filter((x) => Number.isFinite(x) && x > 0)
     .slice(0, 3);
-}
-
-export interface BigPrint {
-  priceTicks: number;
-  qty: number;
-  side: 'buy' | 'sell';
-  time: number;
-}
-
-/** Big prints still inside the line lifetime, newest first; one per price+side (largest kept). */
-export function liveBigPrints(prints: BigPrint[], now: number, lifetimeMin: number): BigPrint[] {
-  const cut = now - lifetimeMin * 60_000;
-  const best = new Map<string, BigPrint>();
-  for (const p of prints) {
-    if (p.time < cut) continue;
-    const k = `${p.priceTicks}|${p.side}`;
-    const cur = best.get(k);
-    if (!cur || p.qty > cur.qty) best.set(k, p);
-  }
-  return [...best.values()].sort((a, b) => b.time - a.time);
 }
 
 /**

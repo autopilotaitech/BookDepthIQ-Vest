@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_INDICATORS, indicatorsFor, liveBigPrints, parseBands, stackZones } from '../src/panel/indicators.js';
+import { DEFAULT_INDICATORS, indicatorsFor, parseBands, stackZones } from '../src/panel/indicators.js';
 import { Vwap, parseHhmm, sessionWindow } from '../src/panel/vwap.js';
 
 describe('VWAP', () => {
@@ -57,26 +57,6 @@ describe('indicator settings', () => {
     expect(parseBands('1, 2')).toEqual([1, 2]);
     expect(parseBands('0.5 1 2 3')).toEqual([0.5, 1, 2]);
     expect(parseBands('')).toEqual([]);
-  });
-});
-
-describe('big prints', () => {
-  it('keeps the largest per price+side inside the lifetime, newest first', () => {
-    const now = 1_000_000;
-    const out = liveBigPrints(
-      [
-        { priceTicks: 10, qty: 4, side: 'buy', time: now - 60_000 },
-        { priceTicks: 10, qty: 6, side: 'buy', time: now - 120_000 },
-        { priceTicks: 10, qty: 5, side: 'sell', time: now - 30_000 },
-        { priceTicks: 12, qty: 9, side: 'buy', time: now - 20 * 60_000 }, // expired
-      ],
-      now,
-      15,
-    );
-    expect(out.map((p) => [p.side, p.qty])).toEqual([
-      ['sell', 5],
-      ['buy', 6],
-    ]);
   });
 });
 

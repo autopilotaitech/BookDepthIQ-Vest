@@ -7,7 +7,7 @@ import { aggregate, bucketOf, offscreen, rowPnlUsd, stepGroup } from '../src/pan
 import { loadSettings, saveSettings, type Settings, type SizeMode } from './settings';
 import { edgeRatio, roundTrip, spreadGate } from '../src/panel/cost';
 import { bidShare, imbalances, walls } from '../src/panel/footprint';
-import { indicatorsFor, liveBigPrints, parseBands, stackZones, type IndicatorCfg } from '../src/panel/indicators';
+import { indicatorsFor, parseBands, stackZones, type IndicatorCfg } from '../src/panel/indicators';
 import { buildProfile } from '../src/panel/profile';
 import { watchHookStatus, watchUserToken, watchVestTabs } from './liveToken';
 import { liveOpenPnl } from '../src/live/rules';
@@ -452,8 +452,6 @@ export function App() {
     }
   }
   if (ind.fpOn && ind.fpLines) for (const z of stackZones(imb.buyStack, imb.sellStack, g)) addLine(z.ticks, z.side === 'buy' ? 'zone-buy' : 'zone-sell', `STACK ${z.side === 'buy' ? '▲' : '▼'}${z.rows}`);
-  const bigLive = ind.bigOn && ind.bigLines ? liveBigPrints(m.bigPrints, Date.now(), ind.bigLineMin) : [];
-  for (const p of bigLive) addLine(p.priceTicks, p.side === 'buy' ? 'big-buy' : 'big-sell', `BIG ${p.side === 'buy' ? 'B' : 'S'} ${fmtVol(p.qty)}`);
   const markers = [
     ...orders.map((o) => ({ label: o.leg ? o.leg.toUpperCase() : o.type === 'stop' ? 'STP' : 'LMT', ticks: o.priceTicks })),
     ...(failRow !== undefined ? [{ label: 'FAIL', ticks: failRow }] : []),
@@ -736,8 +734,6 @@ export function App() {
                 <label><input type="checkbox" checked={ind.bigOn} onChange={(e) => setInd({ bigOn: e.target.checked })} /> Big trades</label>
               </legend>
               <label title="a print this size or more is highlighted on the tape (units)">min size u <input type="number" min={0} step={0.5} value={ind.bigMin} onChange={(e) => setInd({ bigMin: Math.max(0, Number(e.target.value) || 0) })} /></label>
-              <label><input type="checkbox" checked={ind.bigLines} onChange={(e) => setInd({ bigLines: e.target.checked })} /> ladder lines</label>
-              <label title="how long a big-print line stays on the ladder">keep min <input type="number" min={1} step={1} value={ind.bigLineMin} onChange={(e) => setInd({ bigLineMin: Math.max(1, Number(e.target.value) || 15) })} /></label>
             </fieldset>
           </details>
           <button className="mini" onClick={() => m.resetPaper()}>reset paper account</button>
@@ -1040,7 +1036,10 @@ export function App() {
               <div key={r.id} className={`trow ${r.side} ${ind.bigOn && r.qty >= ind.bigMin ? (r.qty >= 3 * ind.bigMin ? 'big huge' : 'big') : ''}`}>
                 <span>{new Date(r.time).toLocaleTimeString([], { hour12: false })}</span>
                 <span>{formatPrice(r.priceTicks, tick)}</span>
-                <span>{r.qty.toFixed(4)}</span>
+                <span className="tq">
+                  {ind.bigOn && r.qty >= ind.bigMin && <i style={{ width: `${Math.min(100, (r.qty / (4 * ind.bigMin)) * 100)}%` }} />}
+                  <em>{ind.bigOn && r.qty >= ind.bigMin ? `${r.side === 'buy' ? 'B' : 'S'} ${r.qty.toFixed(2)}` : r.qty.toFixed(4)}</em>
+                </span>
               </div>
             ))}
             {m.tape.length === 0 && <div className="muted">waiting for trades…</div>}
