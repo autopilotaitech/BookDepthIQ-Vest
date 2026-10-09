@@ -27,6 +27,11 @@ export async function fetchTicker(symbol: string): Promise<TickerData | undefine
   return r.tickers[0];
 }
 
+/** Up to `limit` (≤ 1000) public trades at or before `endTime`, newest first. */
+export function fetchTradesBefore(symbol: string, endTime: number, limit = 1000): Promise<TradeData[]> {
+  return getJson<TradeData[]>(`/v3/trades?symbol=${encodeURIComponent(symbol)}&endTime=${Math.floor(endTime)}&limit=${limit}`);
+}
+
 export function fetchRecentTrades(symbol: string): Promise<TradeData[]> {
   return getJson<TradeData[]>(`/v3/trades?symbol=${encodeURIComponent(symbol)}`);
 }

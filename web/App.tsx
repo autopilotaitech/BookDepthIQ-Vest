@@ -7,6 +7,7 @@ import { aggregate, bucketOf, offscreen, rowPnlUsd, stepGroup } from '../src/pan
 import { loadSettings, saveSettings, type Settings, type SizeMode } from './settings';
 import { edgeRatio, roundTrip, spreadGate } from '../src/panel/cost';
 import { bidShare, imbalances, walls } from '../src/panel/footprint';
+import { indicatorsFor, liveBigPrints, parseBands, stackZones, type IndicatorCfg } from '../src/panel/indicators';
 import { buildProfile } from '../src/panel/profile';
 import { watchHookStatus, watchUserToken, watchVestTabs } from './liveToken';
 import { liveOpenPnl } from '../src/live/rules';
@@ -116,6 +117,17 @@ export function App() {
 
   // ── LIVE (LIVE-ORDERS-SPEC §4). Mode is not a setting: every launch starts in PAPER. ──
   const L = m.live;
+  // Per-instrument indicator settings (VWAP, imbalances, big trades); the model re-anchors VWAP on change.
+  const ind = indicatorsFor(s.indicators, m.info?.symbol);
+  const indJson = JSON.stringify(ind);
+  useEffect(() => {
+    m.configureIndicators(JSON.parse(indJson) as IndicatorCfg);
+  }, [m, indJson, m.info?.symbol]);
+  const setInd = (patch: Partial<IndicatorCfg>) => {
+    const sym = m.info?.symbol;
+    if (!sym) return;
+    update({ indicators: { ...s.indicators, [sym]: { ...(s.indicators[sym] ?? {}), ...patch } } });
+  };
   const live = L.mode === 'live';
   // Two sources for the Vest login: the relay → storage.session chain, and the panel reading open
   // Vest tabs itself. Either one is enough.
@@ -296,7 +308,9 @@ export function App() {
   const soldG = aggregate([...m.soldAt.keys()], [...m.soldAt.values()], g);
   const imbKey = `${m.info?.symbol ?? ''}|${g}`;
   const prevImb = imbMemo.current.key === imbKey ? imbMemo.current : undefined;
-  const imb = imbalances(boughtG, soldG, g, s.imbalanceRatio, 0.05 * prof.maxVol, 3, prevImb);
+  const imb = ind.fpOn
+    ? imbalances(boughtG, soldG, g, ind.fpRatio, (ind.fpMinPct / 100) * prof.maxVol, ind.fpStack, prevImb)
+    : { buy: new Set<number>(), sell: new Set<number>(), buyStack: new Set<number>(), sellStack: new Set<number>() };
   imbMemo.current = { key: imbKey, buy: imb.buy, sell: imb.sell };
   const bidWalls = walls(bidAt);
   const askWalls = walls(askAt);
@@ -419,10 +433,32 @@ export function App() {
   const stDist = (st: typeof st1) => (st && stRef !== undefined ? (stRef - st.ticks) * tick : undefined);
   const TREND_LABEL = { strongLong: '▲▲ STRONG LONG', weakLong: '▲ WEAK LONG', chop: '◆ CHOP', weakShort: '▼ WEAK SHORT', strongShort: '▼▼ STRONG SHORT' } as const;
   const flipFresh = m.lastFlip !== null && Date.now() - m.lastFlip.at < 5000;
+  // Level lines drawn across ladder rows (like the ST lines): VWAP + σ bands, stacked-imbalance
+  // zones, big prints. Keyed by row; each row can carry several.
+  const vwapT = ind.vwapOn ? m.vwap.value() : undefined;
+  const vwapSd = ind.vwapOn ? m.vwap.sigma() : undefined;
+  const levelLines = new Map<number, Array<{ cls: string; label: string }>>();
+  const addLine = (ticks: number, cls: string, label: string) => {
+    const r = bk(Math.round(ticks))!;
+    const arr = levelLines.get(r) ?? [];
+    arr.push({ cls, label });
+    levelLines.set(r, arr);
+  };
+  if (vwapT !== undefined) {
+    addLine(vwapT, 'vwap', 'VWAP');
+    for (const b of m.vwap.bands(ind.vwapBands)) {
+      addLine(b.hi, 'vwapband', `+${b.k}σ`);
+      addLine(b.lo, 'vwapband', `−${b.k}σ`);
+    }
+  }
+  if (ind.fpOn && ind.fpLines) for (const z of stackZones(imb.buyStack, imb.sellStack, g)) addLine(z.ticks, z.side === 'buy' ? 'zone-buy' : 'zone-sell', `STACK ${z.side === 'buy' ? '▲' : '▼'}${z.rows}`);
+  const bigLive = ind.bigOn && ind.bigLines ? liveBigPrints(m.bigPrints, Date.now(), ind.bigLineMin) : [];
+  for (const p of bigLive) addLine(p.priceTicks, p.side === 'buy' ? 'big-buy' : 'big-sell', `BIG ${p.side === 'buy' ? 'B' : 'S'} ${fmtVol(p.qty)}`);
   const markers = [
     ...orders.map((o) => ({ label: o.leg ? o.leg.toUpperCase() : o.type === 'stop' ? 'STP' : 'LMT', ticks: o.priceTicks })),
     ...(failRow !== undefined ? [{ label: 'FAIL', ticks: failRow }] : []),
     ...(st1 ? [{ label: `ST1 ${st1.dir === 'up' ? 'support' : 'resistance'}`, ticks: st1.ticks }] : []),
+    ...(vwapT !== undefined ? [{ label: 'VWAP', ticks: Math.round(vwapT) }] : []),
     ...(st2 ? [{ label: `ST2 ${st2.dir === 'up' ? 'support' : 'resistance'}`, ticks: st2.ticks }] : []),
   ];
   const pinned = center === null ? [] : offscreen(markers, lo, hi);
@@ -431,7 +467,7 @@ export function App() {
     return (
       <div
         key={`${p.label}${p.ticks}`}
-        className={`pin ${p.label.startsWith('FAIL') ? 'fail' : p.label.startsWith('TP') ? 'tp' : p.label.startsWith('SL') ? 'sl' : p.label.startsWith('ST') ? (p.label.endsWith('support') ? 'st-up' : 'st-down') : ''}`}
+        className={`pin ${p.label.startsWith('FAIL') ? 'fail' : p.label.startsWith('TP') ? 'tp' : p.label.startsWith('SL') ? 'sl' : p.label.startsWith('ST') ? (p.label.endsWith('support') ? 'st-up' : 'st-down') : p.label === 'VWAP' ? 'vwap' : ''}`}
         onClick={() => {
           detachBriefly();
           setCenter(bucketOf(p.ticks, g));
@@ -667,10 +703,43 @@ export function App() {
             LIVE size cap u (0 = off)
             <input type="number" min={0} step={0.001} value={s.liveSizeCap} onChange={(e) => update({ liveSizeCap: Math.max(0, Number(e.target.value) || 0) })} />
           </label>
-          <label title="footprint: a Sold/Bought cell lights when one side outweighs the other diagonally by this ratio">
-            Imbalance ratio
-            <input type="number" min={1.5} step={0.5} value={s.imbalanceRatio} onChange={(e) => update({ imbalanceRatio: Math.max(1.5, Number(e.target.value) || 3) })} />
-          </label>
+          <details className="indset">
+            <summary>Indicators — {m.info?.displaySymbol ?? m.info?.symbol ?? ''} (saved per instrument)</summary>
+            <fieldset>
+              <legend>
+                <label><input type="checkbox" checked={ind.vwapOn} onChange={(e) => setInd({ vwapOn: e.target.checked })} /> VWAP</label>
+              </legend>
+              <label title="session start, HH:MM in the time zone below">start <input type="text" size={5} defaultValue={ind.vwapStart} key={`vs${m.info?.symbol}`} onBlur={(e) => setInd({ vwapStart: e.target.value.trim() })} /></label>
+              <label title="session end, HH:MM (earlier than start = crosses midnight)">end <input type="text" size={5} defaultValue={ind.vwapEnd} key={`ve${m.info?.symbol}`} onBlur={(e) => setInd({ vwapEnd: e.target.value.trim() })} /></label>
+              <label>
+                zone
+                <select value={ind.vwapTz} onChange={(e) => setInd({ vwapTz: e.target.value })}>
+                  <option value="America/New_York">New York</option>
+                  <option value="America/Chicago">Chicago</option>
+                  <option value="Europe/London">London</option>
+                  <option value="UTC">UTC</option>
+                </select>
+              </label>
+              <label title="σ multipliers for the bands, e.g. 1, 2 (blank = none)">bands σ <input type="text" size={6} defaultValue={ind.vwapBands.join(', ')} key={`vb${m.info?.symbol}`} onBlur={(e) => setInd({ vwapBands: parseBands(e.target.value) })} /></label>
+            </fieldset>
+            <fieldset>
+              <legend>
+                <label><input type="checkbox" checked={ind.fpOn} onChange={(e) => setInd({ fpOn: e.target.checked })} /> Footprint imbalances</label>
+              </legend>
+              <label title="a Sold/Bought cell lights when one side beats the other diagonally by this ratio">ratio <input type="number" min={1.5} step={0.5} value={ind.fpRatio} onChange={(e) => setInd({ fpRatio: Math.max(1.5, Number(e.target.value) || 3) })} /></label>
+              <label title="ignore rows that traded less than this % of the busiest row">min vol % <input type="number" min={0} step={1} value={ind.fpMinPct} onChange={(e) => setInd({ fpMinPct: Math.max(0, Number(e.target.value) || 0) })} /></label>
+              <label title="consecutive imbalances that make a stacked zone">stack <input type="number" min={2} step={1} value={ind.fpStack} onChange={(e) => setInd({ fpStack: Math.max(2, Math.round(Number(e.target.value) || 3)) })} /></label>
+              <label><input type="checkbox" checked={ind.fpLines} onChange={(e) => setInd({ fpLines: e.target.checked })} /> zone lines</label>
+            </fieldset>
+            <fieldset>
+              <legend>
+                <label><input type="checkbox" checked={ind.bigOn} onChange={(e) => setInd({ bigOn: e.target.checked })} /> Big trades</label>
+              </legend>
+              <label title="a print this size or more is highlighted on the tape (units)">min size u <input type="number" min={0} step={0.5} value={ind.bigMin} onChange={(e) => setInd({ bigMin: Math.max(0, Number(e.target.value) || 0) })} /></label>
+              <label><input type="checkbox" checked={ind.bigLines} onChange={(e) => setInd({ bigLines: e.target.checked })} /> ladder lines</label>
+              <label title="how long a big-print line stays on the ladder">keep min <input type="number" min={1} step={1} value={ind.bigLineMin} onChange={(e) => setInd({ bigLineMin: Math.max(1, Number(e.target.value) || 15) })} /></label>
+            </fieldset>
+          </details>
           <button className="mini" onClick={() => m.resetPaper()}>reset paper account</button>
         </details>
       </section>
@@ -731,6 +800,17 @@ export function App() {
                   </span>
                 );
               })}
+            </b>
+          </div>
+        )}
+        {ind.vwapOn && (
+          <div title={`session VWAP ${ind.vwapStart}–${ind.vwapEnd} (${ind.vwapTz}); distance of the last price in σ`}>
+            <label>VWAP{m.vwapLoading ? ' (loading…)' : ''}</label>
+            <b className="vwapv">
+              {vwapT === undefined ? '—' : formatPrice(Math.round(vwapT), tick)}
+              {vwapT !== undefined && vwapSd !== undefined && vwapSd > 0 && stRef !== undefined && (
+                <small>{`${stRef >= vwapT ? '+' : '−'}${(Math.abs(stRef - vwapT) / vwapSd).toFixed(1)}σ`}</small>
+              )}
             </b>
           </div>
         )}
@@ -871,6 +951,8 @@ export function App() {
             };
             return (
               <div key={t} className={cls} style={gridStyle} onPointerUp={drop}>
+                {levelLines.get(t)?.map((l, i) => <i key={`hl${i}`} className={`hl ${l.cls}`} />)}
+                {levelLines.has(t) && <b className={`hltag ${levelLines.get(t)![0]!.cls}`}>{levelLines.get(t)!.map((l) => l.label).join(' · ')}</b>}
                 <span className="orders buy" title={live ? 'LIVE: click = limit order on Vest (shift-click stops are paper-only: Vest has no stop entries)' : undefined} onClick={(e) => place('buy', t, e.shiftKey)}>
                   {ordersAt(t, 'buy').map(orderChip)}
                 </span>
@@ -955,7 +1037,7 @@ export function App() {
               )}
             </h4>
             {m.tape.slice(0, s.showLog ? 40 : 120).map((r) => (
-              <div key={r.id} className={`trow ${r.side}`}>
+              <div key={r.id} className={`trow ${r.side} ${ind.bigOn && r.qty >= ind.bigMin ? (r.qty >= 3 * ind.bigMin ? 'big huge' : 'big') : ''}`}>
                 <span>{new Date(r.time).toLocaleTimeString([], { hour12: false })}</span>
                 <span>{formatPrice(r.priceTicks, tick)}</span>
                 <span>{r.qty.toFixed(4)}</span>

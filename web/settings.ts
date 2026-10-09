@@ -1,3 +1,4 @@
+import type { IndicatorCfg } from '../src/panel/indicators';
 // Per-viewer UI settings in localStorage. Every read/write is guarded: storage can be missing or
 // throw (private window, blocked site data) and the panel must still work on defaults.
 
@@ -31,8 +32,8 @@ export interface Settings {
   showLog: boolean;
   /** Ladder: show the per-price delta column. */
   showDelta: boolean;
-  /** Footprint: diagonal imbalance ratio that lights a Sold/Bought cell (3 = 3:1). */
-  imbalanceRatio: number;
+  /** Per-instrument indicator overrides (VWAP, footprint imbalances, big trades), keyed by wire symbol. */
+  indicators: Record<string, Partial<IndicatorCfg>>;
   /** Dual SuperTrend lines on the ladder + header badge (BookDepthIQ's engine and defaults). */
   showTrend: boolean;
 }
@@ -60,7 +61,7 @@ export const DEFAULTS: Settings = {
   liveSizeCap: 0, // 0 = off: trading power is the limit, as on Vest's own ticket
   showLog: false,
   showDelta: true,
-  imbalanceRatio: 3,
+  indicators: {},
   showTrend: true,
 };
 

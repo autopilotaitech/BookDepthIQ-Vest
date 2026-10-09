@@ -350,3 +350,31 @@ b { font-weight: 600; }
 .lrow .fp.bought.imb { background: rgba(56, 189, 248, 0.22); color: #7dd3fc; font-weight: 700; box-shadow: inset 2px 0 0 #38bdf8; }
 .lrow .fp.sold.imb.stack { box-shadow: inset -4px 0 0 #fff; }
 .lrow .fp.bought.imb.stack { box-shadow: inset 4px 0 0 #fff; }
+
+/* ───── v1.1 level lines: VWAP + bands, stacked-imbalance zones, big prints ───── */
+.lrow .hl { position: absolute; left: 0; right: 0; top: 50%; height: 0; pointer-events: none; z-index: 1; }
+.lrow .hl.vwap { border-top: 2px solid #c084fc; }
+.lrow .hl.vwapband { border-top: 1px dashed rgba(192, 132, 252, 0.6); }
+.lrow .hl.zone-buy { border-top: 1px dotted #38bdf8; }
+.lrow .hl.zone-sell { border-top: 1px dotted #f59e5b; }
+.lrow .hl.big-buy { border-top: 1px solid rgba(56, 189, 248, 0.55); }
+.lrow .hl.big-sell { border-top: 1px solid rgba(245, 158, 91, 0.55); }
+.lrow .hltag { position: absolute; right: 4px; top: 50%; transform: translateY(-50%); z-index: 3; line-height: 13px; font-size: 9px; font-weight: 700; padding: 0 5px; border-radius: 3px; background: #0b0e14; white-space: nowrap; pointer-events: none; }
+.lrow .hltag.vwap, .lrow .hltag.vwapband { color: #d8b4fe; border: 1px solid #7e22ce; }
+.lrow .hltag.zone-buy, .lrow .hltag.big-buy { color: #7dd3fc; border: 1px solid #0369a1; }
+.lrow .hltag.zone-sell, .lrow .hltag.big-sell { color: #fdba74; border: 1px solid #c2410c; }
+.pins .pin.vwap { color: #d8b4fe; }
+.position .vwapv { color: #d8b4fe; }
+.position .vwapv small { margin-left: 6px; color: #9aa3b2; }
+/* tape: institutional-size prints */
+.trow.big { font-weight: 700; }
+.trow.big.buy { background: rgba(56, 189, 248, 0.14); }
+.trow.big.sell { background: rgba(245, 158, 91, 0.14); }
+.trow.big.huge.buy { background: rgba(56, 189, 248, 0.32); color: #fff; }
+.trow.big.huge.sell { background: rgba(245, 158, 91, 0.32); color: #fff; }
+/* settings: collapsible per-instrument indicators */
+.indset { margin-top: 6px; }
+.indset summary { cursor: pointer; color: var(--muted); }
+.indset fieldset { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; border: 1px solid var(--line); border-radius: 4px; margin: 6px 0; padding: 4px 8px 6px; }
+.indset legend { padding: 0 4px; font-weight: 600; }
+.indset input[type='number'] { width: 56px; }

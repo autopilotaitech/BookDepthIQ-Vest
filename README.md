@@ -113,6 +113,18 @@ and delta count from when the panel opens.
   and pulses on a flip. The strip shows points from price to each line. Toggle with **ST** in the
   tape header. It warms up from Vest's recent trades; ST1 needs about 10 one-minute candles.
 
+**VWAP, imbalances and big trades** (settings → *Indicators*, saved per instrument)
+- **VWAP** with σ bands (default 1 and 2), anchored to your session **start/stop time** and time
+  zone (default 09:30–16:00 New York). On open the panel pages in that session's trades from
+  Vest, so VWAP is right even if you open the panel late. Drawn as a purple line with dashed band
+  lines; the strip shows VWAP and how many σ price is from it.
+- **Footprint imbalances:** ratio, minimum volume (% of the busiest row), stack size, and
+  **zone lines** for stacked imbalances (▲ support at the bottom of a buy run, ▼ resistance at the
+  top of a sell run). Turn the whole thing off per instrument.
+- **Big trades:** prints at or above your size (default 8u ≈ the top 1% of Vest NQ prints) are
+  highlighted on the tape (stronger at 3×) and drawn as lines on the ladder for a set number of
+  minutes, tagged BIG B / BIG S with the size.
+
 **Cost panel** (above the buttons): what an entry really costs, before you click
 - **Spread light:** green **CHEAP** = the spread is at or below this market's median for the last
   5 min, amber = normal, red **WIDE** = above its p90 (wait, or use a limit). It shows
