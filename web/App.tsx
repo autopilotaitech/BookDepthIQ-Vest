@@ -1165,13 +1165,13 @@ export function App() {
             spread {spread === undefined ? '—' : (spread * tick).toFixed(dec)} · {gate === 'cheap' ? 'CHEAP to cross' : gate === 'normal' ? 'normal' : gate === 'wide' ? 'WIDE — wait or use a limit' : 'learning…'}
           </span>
           {rtBuy && (
-            <span className={`fillest ${rtBuy.entry.slipTicks > 0 || !rtBuy.entry.complete ? 'slip' : ''}`} title={`buy ${units} walks ${rtBuy.entry.levels} ask level(s), worst ${(rtBuy.entry.worstTicks * tick).toFixed(dec)}`}>
-              BUY ≈ <b>{fillTxt(rtBuy)}</b> {!rtBuy.entry.complete ? '· book too thin' : rtBuy.entry.slipTicks > 0 ? `· slip ${rtBuy.entry.slipTicks.toFixed(1)}t` : '· no slip'}
+            <span className={`fillest ${rtBuy.entry.slipTicks >= 0.05 || !rtBuy.entry.complete ? 'slip' : ''}`} title={`buy ${units} walks ${rtBuy.entry.levels} ask level(s), worst ${(rtBuy.entry.worstTicks * tick).toFixed(dec)}`}>
+              BUY ≈ <b>{fillTxt(rtBuy)}</b> {!rtBuy.entry.complete ? '· book too thin' : rtBuy.entry.slipTicks >= 0.05 ? `· slip ${rtBuy.entry.slipTicks.toFixed(1)}t` : '· no slip'}
             </span>
           )}
           {rtSell && (
-            <span className={`fillest ${rtSell.entry.slipTicks > 0 || !rtSell.entry.complete ? 'slip' : ''}`} title={`sell ${units} walks ${rtSell.entry.levels} bid level(s), worst ${(rtSell.entry.worstTicks * tick).toFixed(dec)}`}>
-              SELL ≈ <b>{fillTxt(rtSell)}</b> {!rtSell.entry.complete ? '· book too thin' : rtSell.entry.slipTicks > 0 ? `· slip ${rtSell.entry.slipTicks.toFixed(1)}t` : '· no slip'}
+            <span className={`fillest ${rtSell.entry.slipTicks >= 0.05 || !rtSell.entry.complete ? 'slip' : ''}`} title={`sell ${units} walks ${rtSell.entry.levels} bid level(s), worst ${(rtSell.entry.worstTicks * tick).toFixed(dec)}`}>
+              SELL ≈ <b>{fillTxt(rtSell)}</b> {!rtSell.entry.complete ? '· book too thin' : rtSell.entry.slipTicks >= 0.05 ? `· slip ${rtSell.entry.slipTicks.toFixed(1)}t` : '· no slip'}
             </span>
           )}
           {breakEven !== undefined && (
