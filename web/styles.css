@@ -398,3 +398,15 @@ b { font-weight: 600; }
 .pins .pin.or-h { color: #7fdfff; }
 .pins .pin.or-l { color: #ff9a76; }
 .position .orv small { margin-left: 6px; color: #9aa3b2; }
+
+/* ───── level lines behind the numbers ─────
+   Lines (ST ::before/::after z 2, .hl z 1) sit above cell backgrounds; every number sits above the
+   lines and knocks a gap out of them with its own cell's background (background: inherit), plus a
+   dark halo where the cell is transparent. Tags stay on top. */
+.lrow .ptxt, .lrow .liq em, .lrow .fpn, .lrow .pnl, .lrow .prof .pnum, .lrow .prof .plabel, .lrow .delta .dnum {
+  position: relative; z-index: 4; font-style: normal;
+  text-shadow: 0 0 2px #0b0e14, 0 0 4px #0b0e14, 0 0 6px #0b0e14;
+}
+.lrow .ptxt { background: inherit; padding: 0 4px; border-radius: 2px; }
+.lrow .sttag, .lrow .hltag { z-index: 5; }
+.lrow .price { background-clip: padding-box; }

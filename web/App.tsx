@@ -988,7 +988,7 @@ export function App() {
                 <span className="orders buy" title={live ? 'LIVE: click = limit order on Vest (shift-click stops are paper-only: Vest has no stop entries)' : undefined} onClick={(e) => place('buy', t, e.shiftKey)}>
                   {ordersAt(t, 'buy').map(orderChip)}
                 </span>
-                <span className={`fp sold ${imb.sell.has(t) ? 'imb' : ''} ${imb.sellStack.has(t) ? 'stack' : ''}`}>{so ? fmtVol(so) : ''}</span>
+                <span className={`fp sold ${imb.sell.has(t) ? 'imb' : ''} ${imb.sellStack.has(t) ? 'stack' : ''}`}>{so ? <em className="fpn">{fmtVol(so)}</em> : ''}</span>
                 <span
                   className="size bid liq"
                   style={b !== undefined ? { background: `rgba(34, 211, 238, ${(0.06 + 0.66 * (b / maxSize)).toFixed(2)})` } : undefined}
@@ -1008,7 +1008,7 @@ export function App() {
                   }}
                 >
                   {implied !== undefined && t === bk(implied) && <b className="idx" title="index-implied mid (index + tracked basis). LAGS Vest's own mid by ~600 ms — reference only, not a lead signal.">◆</b>}
-                  {formatPrice(t, tick)}
+                  <span className="ptxt">{formatPrice(t, tick)}</span>
                   {t === bk(failRow) && <b className="failtag">FAIL</b>}
                   {st1 && t === bk(st1.ticks) && <b className={`sttag st1 ${st1.dir}`}>{st1.dir === 'up' ? '▲' : '▼'} ST1</b>}
                   {st2 && t === bk(st2.ticks) && <b className={`sttag st2 ${st2.dir}`}>{st2.dir === 'up' ? '▲' : '▼'} ST2</b>}
@@ -1022,7 +1022,7 @@ export function App() {
                   <em>{a !== undefined ? (s.ladderUsd ? fmtK(a * t * tick) : a.toFixed(2)) : ''}</em>
                   {askWalls.has(t) && <b className="wall">WALL</b>}
                 </span>
-                <span className={`fp bought ${imb.buy.has(t) ? 'imb' : ''} ${imb.buyStack.has(t) ? 'stack' : ''}`}>{bo ? fmtVol(bo) : ''}</span>
+                <span className={`fp bought ${imb.buy.has(t) ? 'imb' : ''} ${imb.buyStack.has(t) ? 'stack' : ''}`}>{bo ? <em className="fpn">{fmtVol(bo)}</em> : ''}</span>
                 <span className="orders sell" title={live ? 'LIVE: click = limit order on Vest (shift-click stops are paper-only: Vest has no stop entries)' : undefined} onClick={(e) => place('sell', t, e.shiftKey)}>
                   {ordersAt(t, 'sell').map(orderChip)}
                 </span>
