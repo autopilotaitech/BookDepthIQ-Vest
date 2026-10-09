@@ -5,6 +5,8 @@ with NQ. It runs as a Chrome extension next to your logged-in Vest tab. You get 
 live Vest book, tape and volume, one-click market and limit entries with TP/SL brackets, draggable
 orders, B/E and one-key flatten.
 
+![BookDepthIQ-Vest panel: footprint ladder with liquidity heat, volume profile, delta, dual SuperTrend and VWAP lines, cost panel and Vest tape](docs/images/panel.png)
+
 > ## ⚠️ BETA — read this before you trade
 >
 > - **It works, and it is still beta.** Every LIVE action has been in real use on Vest since
