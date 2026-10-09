@@ -98,12 +98,19 @@ export function App() {
     });
   }, []);
 
+  // Start the market socket ONCE with the saved symbol; stop it only when the panel unmounts.
+  // (It used to depend on s.symbol, so switching instruments ran the cleanup, stopped the socket,
+  // and the `started` guard never restarted it: only the first instrument ever got a live book.)
+  const initialSymbol = useRef(s.symbol);
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    void m.start(s.symbol);
-    return () => m.stop();
-  }, [m, s.symbol]);
+    void m.start(initialSymbol.current);
+    return () => {
+      started.current = false;
+      m.stop();
+    };
+  }, [m]);
 
   // Bracket settings are the user's numbers, applied to the paper broker as they change.
   const broker = m.broker;
