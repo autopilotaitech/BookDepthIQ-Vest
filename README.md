@@ -202,7 +202,7 @@ Open an issue at https://github.com/autopilotaitech/BookDepthIQ-Vest/issues with
 ## Contributing
 
 Feedback, ideas and pull requests are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup and
-the rules for anything that touches LIVE trading.
+the rules for anything that touches LIVE trading. Parked ideas are in [docs/TODO.md](docs/TODO.md).
 
 ## For developers
 
