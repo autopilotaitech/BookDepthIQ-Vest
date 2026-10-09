@@ -315,3 +315,38 @@ b { font-weight: 600; }
 .trendbadge.strongShort { background: #2a0f12; color: #f87171; }
 .trendbadge.flip { animation: stflip 0.8s ease-in-out 4; }
 @keyframes stflip { 50% { box-shadow: 0 0 0 3px currentColor; } }
+
+/* ───── v1.0.1 cleaner profile, delta and footprint ───── */
+/* profile: thin translucent split bar in its own track; number and label in fixed slots */
+.lrow .prof { display: flex; align-items: center; gap: 6px; padding: 0 4px; }
+.lrow.va .prof { background: none; }
+.lrow .prof .ptrack { position: relative; flex: 1; height: 100%; display: flex; align-items: center; min-width: 0; }
+.lrow .prof .pbar { display: flex; height: 7px; max-width: 100%; border-radius: 3px; overflow: hidden; opacity: 0.35; outline: none; transition: width 0.25s ease, opacity 0.25s ease; }
+.lrow .prof.va .pbar { opacity: 0.75; }
+.lrow .prof.poc .pbar { opacity: 1; height: 9px; outline: none; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55); }
+.lrow .prof .pbar i { display: block; height: 100%; transition: width 0.25s ease; }
+.lrow .prof .ps { background: #f59e5b; }
+.lrow .prof .pb { background: #38bdf8; }
+.lrow .prof .pnum { flex: none; width: 44px; text-align: right; font-size: 11px; font-style: normal; color: #5d6676; }
+.lrow .prof.va .pnum { color: #9aa3b2; }
+.lrow .prof.poc .pnum { color: #fff; font-weight: 700; }
+.lrow .prof .plabel { flex: none; width: 28px; margin: 0; text-align: left; font-size: 9px; letter-spacing: 0.06em; color: #c084fc; }
+.lrow .prof .plabel.poc { color: #fff; }
+/* delta: centred bar in a track, number in its own slot (never on top of the bar) */
+.lrow .delta { display: flex; align-items: center; gap: 4px; padding: 0 4px; text-align: left; }
+.lrow .delta .dtrack { position: relative; flex: 1; height: 7px; min-width: 0; }
+.lrow .delta .dtrack::before { content: ''; position: absolute; left: 50%; top: -3px; bottom: -3px; border-left: 1px solid #2a3344; }
+.lrow .delta .dtrack i { position: absolute; top: 0; bottom: 0; border-radius: 2px; opacity: 0.8; transition: width 0.25s ease; }
+.lrow .delta.up .dtrack i { left: 50%; right: auto; background: #38bdf8; }
+.lrow .delta.dn .dtrack i { right: 50%; left: auto; background: #f59e5b; }
+.lrow .delta .dnum { flex: none; width: 46px; text-align: right; font-size: 11px; font-style: normal; color: #7a8394; position: static; }
+.lrow .delta.up .dnum { color: #7dd3fc; }
+.lrow .delta.dn .dnum { color: #fdba74; }
+/* footprint: quiet numbers, imbalance = soft tint + edge, faded in/out (no flash) */
+.lrow .fp { font-size: 11px; color: #7a8394; transition: background-color 0.4s ease, color 0.4s ease, box-shadow 0.4s ease; }
+.lrow .fp.sold { color: #c9a38a; }
+.lrow .fp.bought { color: #8fb8c9; }
+.lrow .fp.sold.imb { background: rgba(245, 158, 91, 0.22); color: #fdba74; font-weight: 700; box-shadow: inset -2px 0 0 #f59e5b; }
+.lrow .fp.bought.imb { background: rgba(56, 189, 248, 0.22); color: #7dd3fc; font-weight: 700; box-shadow: inset 2px 0 0 #38bdf8; }
+.lrow .fp.sold.imb.stack { box-shadow: inset -4px 0 0 #fff; }
+.lrow .fp.bought.imb.stack { box-shadow: inset 4px 0 0 #fff; }

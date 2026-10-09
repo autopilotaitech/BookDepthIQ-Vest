@@ -19,14 +19,27 @@ export interface Imbalances {
  * `minQty`: a row must trade at least this much to count, so a single tiny print against an empty
  * neighbour is not an "infinite" imbalance; the empty side is treated as `minQty`.
  */
-export function imbalances(bought: Map<number, number>, sold: Map<number, number>, g: number, ratio = 3, minQty = 0, stackMin = 3): Imbalances {
+export function imbalances(
+  bought: Map<number, number>,
+  sold: Map<number, number>,
+  g: number,
+  ratio = 3,
+  minQty = 0,
+  stackMin = 3,
+  /** Last result: a lit cell stays lit until its ratio drops below `ratio × release` (no blinking). */
+  prev?: { buy: Set<number>; sell: Set<number> },
+  release = 0.75,
+): Imbalances {
   const buy = new Set<number>();
   const sell = new Set<number>();
+  const need = (lit: boolean) => (lit ? ratio * release : ratio);
   for (const [t, b] of bought) {
-    if (b > 0 && b >= minQty && b >= ratio * Math.max(sold.get(t - g) ?? 0, minQty, 1e-12)) buy.add(t);
+    const r = need(!!prev?.buy.has(t));
+    if (b > 0 && b >= minQty && b >= r * Math.max(sold.get(t - g) ?? 0, minQty, 1e-12)) buy.add(t);
   }
   for (const [t, s] of sold) {
-    if (s > 0 && s >= minQty && s >= ratio * Math.max(bought.get(t + g) ?? 0, minQty, 1e-12)) sell.add(t);
+    const r = need(!!prev?.sell.has(t));
+    if (s > 0 && s >= minQty && s >= r * Math.max(bought.get(t + g) ?? 0, minQty, 1e-12)) sell.add(t);
   }
   return { buy, sell, buyStack: runs(buy, g, stackMin), sellStack: runs(sell, g, stackMin) };
 }

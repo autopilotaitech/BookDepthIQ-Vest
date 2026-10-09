@@ -22,6 +22,8 @@ function useModel(): PanelModel {
 }
 
 const fmtUsd = (v: number) => `${v < 0 ? '-' : v > 0 ? '+' : ''}$${Math.abs(v).toFixed(2)}`;
+/** Compact volume: 0.81, 12.3, 106 — fewer digits, less noise on the ladder. */
+const fmtVol = (v: number) => (v >= 100 ? v.toFixed(0) : v >= 10 ? v.toFixed(1) : v.toFixed(2));
 const pnlClass = (v: number) => (v > 0.004 ? 'pos' : v < -0.004 ? 'neg' : '');
 const fmtK = (v: number) => (v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e3 ? `$${(v / 1e3).toFixed(1)}K` : `$${v.toFixed(0)}`);
 
@@ -154,6 +156,8 @@ export function App() {
   const [liveBusy, setLiveBusy] = useState(false);
   /** Why the last LIVE press did not go live — shown next to the switch, not only in the log. */
   const [liveWhy, setLiveWhy] = useState('');
+  /** Last footprint imbalances, so a lit cell does not blink when its ratio wobbles around 3:1. */
+  const imbMemo = useRef<{ key: string; buy: Set<number>; sell: Set<number> }>({ key: '', buy: new Set(), sell: new Set() });
   /** Result of the last LIVE action, shown under the banner: a refusal must never look like nothing. */
   const [liveLast, setLiveLast] = useState<Result | null>(null);
 
@@ -290,7 +294,10 @@ export function App() {
   // Footprint (bought at ask / sold at bid per row) with diagonal imbalances, and liquidity walls.
   const boughtG = aggregate([...m.boughtAt.keys()], [...m.boughtAt.values()], g);
   const soldG = aggregate([...m.soldAt.keys()], [...m.soldAt.values()], g);
-  const imb = imbalances(boughtG, soldG, g, s.imbalanceRatio, 0.05 * prof.maxVol);
+  const imbKey = `${m.info?.symbol ?? ''}|${g}`;
+  const prevImb = imbMemo.current.key === imbKey ? imbMemo.current : undefined;
+  const imb = imbalances(boughtG, soldG, g, s.imbalanceRatio, 0.05 * prof.maxVol, 3, prevImb);
+  imbMemo.current = { key: imbKey, buy: imb.buy, sell: imb.sell };
   const bidWalls = walls(bidAt);
   const askWalls = walls(askAt);
   const liqBid = bidShare(bidAt.values(), askAt.values());
@@ -867,7 +874,7 @@ export function App() {
                 <span className="orders buy" title={live ? 'LIVE: click = limit order on Vest (shift-click stops are paper-only: Vest has no stop entries)' : undefined} onClick={(e) => place('buy', t, e.shiftKey)}>
                   {ordersAt(t, 'buy').map(orderChip)}
                 </span>
-                <span className={`fp sold ${imb.sell.has(t) ? 'imb' : ''} ${imb.sellStack.has(t) ? 'stack' : ''}`}>{so ? so.toFixed(2) : ''}</span>
+                <span className={`fp sold ${imb.sell.has(t) ? 'imb' : ''} ${imb.sellStack.has(t) ? 'stack' : ''}`}>{so ? fmtVol(so) : ''}</span>
                 <span
                   className="size bid liq"
                   style={b !== undefined ? { background: `rgba(34, 211, 238, ${(0.06 + 0.66 * (b / maxSize)).toFixed(2)})` } : undefined}
@@ -901,25 +908,27 @@ export function App() {
                   <em>{a !== undefined ? (s.ladderUsd ? fmtK(a * t * tick) : a.toFixed(2)) : ''}</em>
                   {askWalls.has(t) && <b className="wall">WALL</b>}
                 </span>
-                <span className={`fp bought ${imb.buy.has(t) ? 'imb' : ''} ${imb.buyStack.has(t) ? 'stack' : ''}`}>{bo ? bo.toFixed(2) : ''}</span>
+                <span className={`fp bought ${imb.buy.has(t) ? 'imb' : ''} ${imb.buyStack.has(t) ? 'stack' : ''}`}>{bo ? fmtVol(bo) : ''}</span>
                 <span className="orders sell" title={live ? 'LIVE: click = limit order on Vest (shift-click stops are paper-only: Vest has no stop entries)' : undefined} onClick={(e) => place('sell', t, e.shiftKey)}>
                   {ordersAt(t, 'sell').map(orderChip)}
                 </span>
                 {showPnl && <span className={`pnl ${pnl === undefined ? '' : pnlClass(pnl)}`}>{pnl === undefined ? '' : fmtUsd(pnl)}</span>}
                 <span className={`prof ${volCls}`} title={t === prof.poc ? 'POC — most traded price this session' : volCls === 'va' ? 'inside the 70% value area' : undefined}>
-                  {v !== undefined && (
-                    <span className="pbar" style={{ width: `${(v / maxVol) * 100}%` }}>
-                      <i className="ps" style={{ width: `${v ? (so / v) * 100 : 0}%` }} />
-                      <i className="pb" style={{ width: `${v ? (bo / v) * 100 : 0}%` }} />
-                    </span>
-                  )}
-                  <em>{v !== undefined ? v.toFixed(2) : ''}</em>
-                  {pLabel && <b className={`plabel ${pLabel === 'POC' ? 'poc' : ''}`}>{pLabel}</b>}
+                  <span className="ptrack">
+                    {v !== undefined && (
+                      <span className="pbar" style={{ width: `${(v / maxVol) * 100}%` }}>
+                        <i className="ps" style={{ width: `${v ? (so / v) * 100 : 0}%` }} />
+                        <i className="pb" style={{ width: `${v ? (bo / v) * 100 : 0}%` }} />
+                      </span>
+                    )}
+                  </span>
+                  <em className="pnum">{v !== undefined ? fmtVol(v) : ''}</em>
+                  <b className={`plabel ${pLabel === 'POC' ? 'poc' : ''}`}>{pLabel}</b>
                 </span>
                 {s.showDelta && (
                   <span className={`delta ${dl === undefined ? '' : dl >= 0 ? 'up' : 'dn'}`}>
-                    {dl !== undefined && dl !== 0 && <i style={{ width: `${(Math.abs(dl) / maxDelta) * 50}%` }} />}
-                    <em>{dl !== undefined && Math.abs(dl) >= 0.005 ? `${dl > 0 ? '+' : ''}${dl.toFixed(2)}` : ''}</em>
+                    <span className="dtrack">{dl !== undefined && dl !== 0 && <i style={{ width: `${(Math.abs(dl) / maxDelta) * 50}%` }} />}</span>
+                    <em className="dnum">{dl !== undefined && Math.abs(dl) >= 0.005 ? `${dl > 0 ? '+' : '−'}${fmtVol(Math.abs(dl))}` : ''}</em>
                   </span>
                 )}
               </div>

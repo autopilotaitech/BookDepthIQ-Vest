@@ -20,6 +20,16 @@ describe('footprint imbalances', () => {
     expect(r2.buy.has(100)).toBe(true); // 0.2 ≥ 3×0.05
   });
 
+  it('hysteresis: a lit cell stays lit until the ratio falls below 75% of the threshold', () => {
+    const sold = m({ 99: 1 });
+    // 2.5:1 is under 3:1 → not lit from cold
+    expect(imbalances(m({ 100: 2.5 }), sold, 1, 3).buy.has(100)).toBe(false);
+    // but it stays lit if it was lit last time (2.5 ≥ 3 × 0.75 = 2.25)
+    expect(imbalances(m({ 100: 2.5 }), sold, 1, 3, 0, 3, { buy: new Set([100]), sell: new Set() }).buy.has(100)).toBe(true);
+    // and goes dark below 2.25
+    expect(imbalances(m({ 100: 2.0 }), sold, 1, 3, 0, 3, { buy: new Set([100]), sell: new Set() }).buy.has(100)).toBe(false);
+  });
+
   it('works on grouped rows (g = 4)', () => {
     const r = imbalances(m({ 104: 3 }), m({ 100: 1 }), 4, 3);
     expect(r.buy.has(104)).toBe(true);
