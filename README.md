@@ -127,6 +127,15 @@ and delta count from when the panel opens.
   prints) flash when they hit and stay highlighted on the tape: bold, tinted by side with a side
   edge, a size bar and "B 12.40" / "S 9.80". At 3× your size they are larger and stronger.
 
+**RTH opening range** (NQ and ES only — the same PAXOR logic as BookDepthIQ)
+- **OR H / OR L** from the trades in the first 30 seconds after the 08:30:00 Chicago bell, drawn
+  as solid lines (blue high, red-orange low); dashed and marked "forming" during those 30 s.
+- **EXT rungs** every 65 pts on NQ / 15 pts on ES beyond the range; each time price breaks the
+  outermost rung the next one appears (EXT1, EXT2, …). Optional mid line.
+- Lines run until 17:00 Chicago. Opening the panel late is fine: it pages in the session's trades
+  from Vest. The strip shows the range, its size in points, and whether price is above, inside or
+  below it. Settings → Indicators → RTH opening range (shown only on NQ and ES).
+
 **Cost panel** (above the buttons): what an entry really costs, before you click
 - **Spread light:** green **CHEAP** = the spread is at or below this market's median for the last
   5 min, amber = normal, red **WIDE** = above its p90 (wait, or use a limit). It shows

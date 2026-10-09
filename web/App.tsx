@@ -8,6 +8,7 @@ import { loadSettings, saveSettings, type Settings, type SizeMode } from './sett
 import { edgeRatio, roundTrip, spreadGate } from '../src/panel/cost';
 import { bidShare, imbalances, walls } from '../src/panel/footprint';
 import { indicatorsFor, parseBands, stackZones, type IndicatorCfg } from '../src/panel/indicators';
+import { orLabel, orRoot } from '../src/panel/paxor';
 import { buildProfile } from '../src/panel/profile';
 import { watchHookStatus, watchUserToken, watchVestTabs } from './liveToken';
 import { liveOpenPnl } from '../src/live/rules';
@@ -451,12 +452,20 @@ export function App() {
       addLine(b.lo, 'vwapband', `−${b.k}σ`);
     }
   }
+  // RTH opening range (BookDepthIQ PAXOR): OR H/L solid, MID and EXT rungs dashed; dashed while forming.
+  const orLevels = m.or?.levels() ?? [];
+  const orForming = !!m.or && m.or.forming(Date.now());
+  for (const l of orLevels) {
+    const cls = l.kind === 'high' ? 'or-h' : l.kind === 'low' ? 'or-l' : l.kind === 'mid' ? 'or-mid' : l.kind === 'upper' ? 'or-ext-up' : 'or-ext-dn';
+    addLine(l.ticks, `${cls}${orForming ? ' forming' : ''}`, orForming && (l.kind === 'high' || l.kind === 'low') ? `${orLabel(l)} forming` : orLabel(l));
+  }
   if (ind.fpOn && ind.fpLines) for (const z of stackZones(imb.buyStack, imb.sellStack, g)) addLine(z.ticks, z.side === 'buy' ? 'zone-buy' : 'zone-sell', `STACK ${z.side === 'buy' ? '▲' : '▼'}${z.rows}`);
   const markers = [
     ...orders.map((o) => ({ label: o.leg ? o.leg.toUpperCase() : o.type === 'stop' ? 'STP' : 'LMT', ticks: o.priceTicks })),
     ...(failRow !== undefined ? [{ label: 'FAIL', ticks: failRow }] : []),
     ...(st1 ? [{ label: `ST1 ${st1.dir === 'up' ? 'support' : 'resistance'}`, ticks: st1.ticks }] : []),
     ...(vwapT !== undefined ? [{ label: 'VWAP', ticks: Math.round(vwapT) }] : []),
+    ...orLevels.filter((l) => l.kind === 'high' || l.kind === 'low').map((l) => ({ label: orLabel(l), ticks: l.ticks })),
     ...(st2 ? [{ label: `ST2 ${st2.dir === 'up' ? 'support' : 'resistance'}`, ticks: st2.ticks }] : []),
   ];
   const pinned = center === null ? [] : offscreen(markers, lo, hi);
@@ -465,7 +474,7 @@ export function App() {
     return (
       <div
         key={`${p.label}${p.ticks}`}
-        className={`pin ${p.label.startsWith('FAIL') ? 'fail' : p.label.startsWith('TP') ? 'tp' : p.label.startsWith('SL') ? 'sl' : p.label.startsWith('ST') ? (p.label.endsWith('support') ? 'st-up' : 'st-down') : p.label === 'VWAP' ? 'vwap' : ''}`}
+        className={`pin ${p.label.startsWith('FAIL') ? 'fail' : p.label.startsWith('TP') ? 'tp' : p.label.startsWith('SL') ? 'sl' : p.label.startsWith('ST') ? (p.label.endsWith('support') ? 'st-up' : 'st-down') : p.label === 'VWAP' ? 'vwap' : p.label === 'OR H' ? 'or-h' : p.label === 'OR L' ? 'or-l' : ''}`}
         onClick={() => {
           detachBriefly();
           setCenter(bucketOf(p.ticks, g));
@@ -729,6 +738,15 @@ export function App() {
               <label title="consecutive imbalances that make a stacked zone">stack <input type="number" min={2} step={1} value={ind.fpStack} onChange={(e) => setInd({ fpStack: Math.max(2, Math.round(Number(e.target.value) || 3)) })} /></label>
               <label><input type="checkbox" checked={ind.fpLines} onChange={(e) => setInd({ fpLines: e.target.checked })} /> zone lines</label>
             </fieldset>
+            {orRoot(m.info?.displaySymbol ?? m.info?.symbol) && (
+              <fieldset>
+                <legend>
+                  <label><input type="checkbox" checked={ind.orOn} onChange={(e) => setInd({ orOn: e.target.checked })} /> RTH opening range (BookDepthIQ PAXOR)</label>
+                </legend>
+                <span className="muted">08:30:00–08:30:30 Chicago · EXT every {orRoot(m.info?.displaySymbol ?? m.info?.symbol) === 'NQ' ? '65' : '15'} pts · lines to 17:00</span>
+                <label><input type="checkbox" checked={ind.orMid} onChange={(e) => setInd({ orMid: e.target.checked })} /> mid line</label>
+              </fieldset>
+            )}
             <fieldset>
               <legend>
                 <label><input type="checkbox" checked={ind.bigOn} onChange={(e) => setInd({ bigOn: e.target.checked })} /> Big trades</label>
@@ -796,6 +814,24 @@ export function App() {
                   </span>
                 );
               })}
+            </b>
+          </div>
+        )}
+        {m.or && (
+          <div title="RTH opening range (BookDepthIQ PAXOR): 08:30:00–08:30:30 Chicago; EXT every 65 pts NQ / 15 pts ES">
+            <label>OR{m.orLoading ? ' (loading…)' : orForming ? ' (forming)' : ''}</label>
+            <b className="orv">
+              {(() => {
+                const h = orLevels.find((l) => l.kind === 'high');
+                const lo = orLevels.find((l) => l.kind === 'low');
+                if (!h || !lo) return '—';
+                const where = stRef === undefined ? '' : stRef > h.ticks ? 'ABOVE' : stRef < lo.ticks ? 'BELOW' : 'INSIDE';
+                return (
+                  <>
+                    {formatPrice(lo.ticks, tick)}–{formatPrice(h.ticks, tick)} <small>{((h.ticks - lo.ticks) * tick).toFixed(2)} pts{where ? ` · ${where}` : ''}</small>
+                  </>
+                );
+              })()}
             </b>
           </div>
         )}

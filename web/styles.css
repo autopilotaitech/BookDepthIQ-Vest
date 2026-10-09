@@ -384,3 +384,17 @@ b { font-weight: 600; }
 .indset fieldset { display: flex; flex-wrap: wrap; gap: 6px 12px; align-items: center; border: 1px solid var(--line); border-radius: 4px; margin: 6px 0; padding: 4px 8px 6px; }
 .indset legend { padding: 0 4px; font-weight: 600; }
 .indset input[type='number'] { width: 56px; }
+
+/* ───── RTH opening range (BookDepthIQ PAXOR colours: high #00bfff, low #ff4500, mid #ffd700) ───── */
+.lrow .hl.or-h { border-top: 3px solid #00bfff; }
+.lrow .hl.or-l { border-top: 3px solid #ff4500; }
+.lrow .hl.or-mid { border-top: 2px solid #ffd700; }
+.lrow .hl.or-ext-up { border-top: 2px dashed #00bfff; }
+.lrow .hl.or-ext-dn { border-top: 2px dashed #ff4500; }
+.lrow .hl.forming { border-top-style: dashed; opacity: 0.7; }
+.lrow .hltag.or-h, .lrow .hltag.or-ext-up { color: #7fdfff; border: 1px solid #00bfff; }
+.lrow .hltag.or-l, .lrow .hltag.or-ext-dn { color: #ff9a76; border: 1px solid #ff4500; }
+.lrow .hltag.or-mid { color: #ffe680; border: 1px solid #ffd700; }
+.pins .pin.or-h { color: #7fdfff; }
+.pins .pin.or-l { color: #ff9a76; }
+.position .orv small { margin-left: 6px; color: #9aa3b2; }

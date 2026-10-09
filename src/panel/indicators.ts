@@ -23,6 +23,9 @@ export interface IndicatorCfg {
   bigOn: boolean;
   /** A print this size or more (units) is "big" and is highlighted on the tape. */
   bigMin: number;
+  // RTH opening range (BookDepthIQ PAXOR) — NQ and ES only
+  orOn: boolean;
+  orMid: boolean;
 }
 
 export const DEFAULT_INDICATORS: IndicatorCfg = {
@@ -40,6 +43,8 @@ export const DEFAULT_INDICATORS: IndicatorCfg = {
   // Measured 2026-10-09 on 6,000 Vest NQ prints: median 3.25u, p99 ≈ 7.75u (most prints are
   // multiples of the market maker's 1.6045 quote). 8u ≈ the top 1%. Tune per instrument.
   bigMin: 8,
+  orOn: true,
+  orMid: false,
 };
 
 /** Settings for `symbol`: its saved overrides on top of the defaults. */

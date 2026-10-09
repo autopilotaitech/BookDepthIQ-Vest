@@ -4,6 +4,7 @@ import { signedQty } from './profile.js';
 import { DualTrend, type DualSnapshot } from './supertrend.js';
 import { DEFAULT_INDICATORS, type IndicatorCfg } from './indicators.js';
 import { Vwap, sessionWindow } from './vwap.js';
+import { DEFAULT_PAXOR, PaxOr, levelFactorTicks, orRoot, orSession } from './paxor.js';
 import { PaperBroker, type Result, type Side } from '../sim/paper.js';
 import { failFloor, preTradeCheck, type AccountSpec } from '../sim/account.js';
 import { BasisTracker, SpreadWindow } from './ladderMath.js';
@@ -82,6 +83,12 @@ export class PanelModel {
   vwapWin: { from: number; to: number } | undefined;
   /** True while older session trades are still being paged in from Vest. */
   vwapLoading = false;
+  /** RTH opening range + EXT ladder (BookDepthIQ PAXOR), NQ/ES only; undefined when off/none. */
+  or: PaxOr | undefined;
+  orLoading = false;
+  private orKey = '';
+  /** Live trades that arrive while OR history is loading, replayed after the rebuild. */
+  private orPending: Array<{ time: number; ticks: number }> = [];
   private vwapKey = '';
   private vwapCheckAt = 0;
 
@@ -238,6 +245,8 @@ export class PanelModel {
     this.vwap.reset();
     this.vwapWin = undefined;
     this.vwapKey = '';
+    this.or = undefined;
+    this.orKey = '';
     this.lastFlip = null;
     this.trendLive = 0;
     this.lastTradeTicks = undefined;
@@ -293,11 +302,14 @@ export class PanelModel {
     if (Date.now() - this.vwapCheckAt > 30_000) this.refreshVwapSession();
     const w = this.vwapWin;
     if (this.ind.vwapOn && w && timeMs >= w.from && timeMs <= w.to) this.vwap.add(priceTicks, qty);
+    this.or?.add(timeMs, priceTicks);
+    if (this.orLoading) this.orPending.push({ time: timeMs, ticks: priceTicks });
   }
 
   /** Recompute the session window; on a new session (or settings change) reset and page in its trades. */
   private refreshVwapSession(): void {
     this.vwapCheckAt = Date.now();
+    this.refreshOrSession();
     const sym = this.info?.symbol;
     const c = this.ind;
     const w = c.vwapOn && sym ? sessionWindow(Date.now(), c.vwapStart, c.vwapEnd, c.vwapTz) : undefined;
@@ -308,6 +320,60 @@ export class PanelModel {
     this.vwapWin = w;
     if (w && sym) void this.loadVwapHistory(sym, key, w);
     this.changed();
+  }
+
+  /** RTH opening range for NQ/ES: new session (or settings change) → rebuild from Vest's trades. */
+  private refreshOrSession(): void {
+    const info = this.info;
+    const root = orRoot(info?.displaySymbol ?? info?.symbol);
+    const cfg = { ...DEFAULT_PAXOR, showMid: this.ind.orMid };
+    const s = this.ind.orOn && root && info ? orSession(Date.now(), cfg) : undefined;
+    const key = s && info ? `${info.symbol}|${s.start}|${cfg.showMid}` : '';
+    if (key === this.orKey) return;
+    this.orKey = key;
+    this.or = s && info ? new PaxOr(s, levelFactorTicks(root, cfg, this.tick), cfg.showMid) : undefined;
+    if (this.or && info && Date.now() > s!.start) void this.loadOrHistory(info.symbol, key, this.or);
+    this.changed();
+  }
+
+  /** Page trades from now back to the OR start, then replay them oldest-first into the OR. */
+  private async loadOrHistory(sym: string, key: string, or: PaxOr): Promise<void> {
+    this.orLoading = true;
+    this.orPending = [];
+    const rows: Array<{ id: string; time: number; ticks: number }> = [];
+    const seen = new Set<string>();
+    let end = Math.min(Date.now(), or.session.end);
+    try {
+      for (let page = 0; page < 60 && end >= or.session.start; page++) {
+        const batch = await fetchTradesBefore(sym, end, 1000);
+        if (key !== this.orKey) return;
+        if (batch.length === 0) break;
+        for (const r of batch) {
+          if (seen.has(r.id) || r.time < or.session.start) continue;
+          seen.add(r.id);
+          rows.push({ id: r.id, time: r.time, ticks: Math.round(Number(r.price) / this.tick) });
+        }
+        const oldest = batch[batch.length - 1]!.time;
+        if (oldest >= end) break;
+        end = oldest;
+      }
+      // Rebuild in time order (history, then live trades that arrived while loading), so the EXT
+      // ladder grows exactly as it would have live.
+      const fresh = or.blank();
+      rows.sort((a, b) => a.time - b.time);
+      for (const r of rows) fresh.add(r.time, r.ticks);
+      const last = rows.length ? rows[rows.length - 1]!.time : -Infinity;
+      for (const p of this.orPending) if (p.time > last) fresh.add(p.time, p.ticks);
+      if (key === this.orKey) this.or = fresh;
+    } catch (e) {
+      this.note(`opening range history unavailable: ${(e as Error).message}`);
+    } finally {
+      if (key === this.orKey) {
+        this.orLoading = false;
+        this.orPending = [];
+        this.changed();
+      }
+    }
   }
 
   /** Page backwards through public trades from now to the session start (≤ 60 pages of 1000). */
