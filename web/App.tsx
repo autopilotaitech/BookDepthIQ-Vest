@@ -485,6 +485,12 @@ export function App() {
     ...(st1 ? [{ label: `ST1 ${st1.dir === 'up' ? 'support' : 'resistance'}`, ticks: st1.ticks }] : []),
     ...(vwapT !== undefined ? [{ label: 'VWAP', ticks: Math.round(vwapT) }] : []),
     ...orLevels.filter((l) => l.kind === 'high' || l.kind === 'low').map((l) => ({ label: orLabel(l), ticks: l.ticks })),
+    // Nearest off-screen EXT rung on each side, so the 65/15-pt spacing from OR H/L is always readable.
+    ...(() => {
+      const above = orLevels.filter((l) => (l.kind === 'upper' || l.kind === 'lower') && l.ticks > hi).sort((x, y) => x.ticks - y.ticks)[0];
+      const below = orLevels.filter((l) => (l.kind === 'upper' || l.kind === 'lower') && l.ticks < lo).sort((x, y) => y.ticks - x.ticks)[0];
+      return [above, below].filter((l): l is NonNullable<typeof l> => !!l).map((l) => ({ label: orLabel(l), ticks: l.ticks }));
+    })(),
     ...(st2 ? [{ label: `ST2 ${st2.dir === 'up' ? 'support' : 'resistance'}`, ticks: st2.ticks }] : []),
   ];
   const pinned = center === null ? [] : offscreen(markers, lo, hi);
@@ -493,7 +499,7 @@ export function App() {
     return (
       <div
         key={`${p.label}${p.ticks}`}
-        className={`pin ${p.label.startsWith('FAIL') ? 'fail' : p.label.startsWith('TP') ? 'tp' : p.label.startsWith('SL') ? 'sl' : p.label.startsWith('ST') ? (p.label.endsWith('support') ? 'st-up' : 'st-down') : p.label === 'VWAP' ? 'vwap' : p.label === 'OR H' ? 'or-h' : p.label === 'OR L' ? 'or-l' : ''}`}
+        className={`pin ${p.label.startsWith('FAIL') ? 'fail' : p.label.startsWith('TP') ? 'tp' : p.label.startsWith('SL') ? 'sl' : p.label.startsWith('ST') ? (p.label.endsWith('support') ? 'st-up' : 'st-down') : p.label === 'VWAP' ? 'vwap' : p.label === 'OR H' ? 'or-h' : p.label === 'OR L' ? 'or-l' : p.label.startsWith('OR EXT') ? (p.above ? 'or-h' : 'or-l') : ''}`}
         onClick={() => {
           detachBriefly();
           setCenter(bucketOf(p.ticks, g));
