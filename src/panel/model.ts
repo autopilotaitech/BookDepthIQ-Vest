@@ -2,13 +2,14 @@ import { bestAsk, bestBid, bookFromDepth, midTicks, spreadTicks, type Book } fro
 import { ladderScore } from '../book/stats.js';
 import { signedQty } from './profile.js';
 import { DualTrend, type DualSnapshot } from './supertrend.js';
+import { PremiumWindow, fundingClass, premiumSample, type FundingClass } from './funding.js';
 import { DEFAULT_INDICATORS, type IndicatorCfg } from './indicators.js';
 import { Vwap, sessionWindow } from './vwap.js';
 import { DEFAULT_PAXOR, PaxOr, levelFactorTicks, orRoot, orSession } from './paxor.js';
 import { PaperBroker, type Result, type Side } from '../sim/paper.js';
 import { failFloor, preTradeCheck, type AccountSpec } from '../sim/account.js';
 import { BasisTracker, SpreadWindow } from './ladderMath.js';
-import { fetchExchangeInfo, fetchRecentTrades, fetchTradesBefore } from '../vest/rest.js';
+import { fetchExchangeInfo, fetchMarketKey, fetchRecentTrades, fetchTradesBefore } from '../vest/rest.js';
 import { buildSymbolTable, tickSizeOf, type SymbolTable } from '../vest/symbols.js';
 import type { SymbolInfo, TickerData } from '../vest/types.js';
 import { VestMarketSocket, type SocketFactory } from '../vest/ws.js';
@@ -72,6 +73,11 @@ export class PanelModel {
   /** Dual SuperTrend (BookDepthIQ's engine and defaults), fed by Vest trades. */
   trend = new DualTrend();
   trendSnap: DualSnapshot = this.trend.snapshot();
+  /** Funding class of the symbol on screen (from Vest's market-hours key); undefined until known. */
+  fundingCls: FundingClass | undefined;
+  /** Live premium samples, Vest's way (impact prices vs index), for the predicted funding rate. */
+  premium = new PremiumWindow();
+  private lastPremiumAt = 0;
   /** Most recent flip: which line, new direction, when (ms). */
   lastFlip: { line: 1 | 2; dir: 'up' | 'down'; at: number } | null = null;
   /** Live trades fed to the trend; REST seeding only runs before the first one. */
@@ -187,6 +193,15 @@ export class PanelModel {
           const bidSum = book.bids.sizes.reduce((a, b) => a + b, 0);
           const askSum = book.asks.sizes.reduce((a, b) => a + b, 0);
           if (bidSum + askSum > 0) this.trend.setBookImbalance((bidSum - askSum) / (bidSum + askSum));
+          // Premium sample (≤ 1/s): impact prices for $100 / initial margin ratio vs the index.
+          const nowMs = Date.now();
+          const idx = Number(this.ticker?.indexPrice);
+          const imr = Number(info.initMarginRatio);
+          if (nowMs - this.lastPremiumAt >= 1000 && idx > 0 && imr > 0) {
+            this.lastPremiumAt = nowMs;
+            const p = premiumSample(book.bids, book.asks, this.tick, idx, imr);
+            if (p !== undefined) this.premium.push(nowMs, p);
+          }
           this.changed();
         },
         onTrade: (sym, msg) => {
@@ -256,6 +271,19 @@ export class PanelModel {
     this.vwapKey = '';
     this.or = undefined;
     this.orKey = '';
+    this.premium = new PremiumWindow();
+    this.fundingCls = undefined;
+    if (info.assetId !== undefined) {
+      const sym = info.symbol;
+      void fetchMarketKey(info.assetId)
+        .then((key) => {
+          if (this.info?.symbol === sym) {
+            this.fundingCls = fundingClass(key);
+            this.changed();
+          }
+        })
+        .catch(() => {});
+    }
     this.lastFlip = null;
     this.trendLive = 0;
     this.lastTradeTicks = undefined;

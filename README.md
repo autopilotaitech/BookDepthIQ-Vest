@@ -141,6 +141,17 @@ and delta count from when the panel opens.
   the bell window and every trade since from Vest (a busy day can take a few seconds). The strip shows the range, its size in points, and whether price is above, inside or
   below it. Settings → Indicators → RTH opening range (shown only on NQ and ES).
 
+**Funding** (Vest settles funding hourly, on the index notional)
+- The position strip shows Vest's current **hourly rate** and its yearly equivalent, **who pays**
+  (positive: longs pay shorts), minutes to the next settlement, your **$ per hour** for the
+  position you hold (red in the last 5 minutes if you are about to pay), and a **predicted** rate:
+  this hour's average premium put through Vest's published formula.
+- **prem 5m** in the header is the live premium the way Vest measures it (impact prices for a
+  $100 ÷ initial-margin order vs the index). NQ/ES/RTY trades are blocked beyond ±25 bps of the
+  index (BTC/ETH ±50), so it turns amber near the band, where price tends to snap back.
+- For a scalp, funding is small: NQ at the ±25 bps limit is ≈ 0.005% an hour (≈ $0.16 on 0.1 units)
+  and nothing if you are flat at the top of the hour.
+
 **Cost panel** (above the buttons): what an entry really costs, before you click
 - **Spread light:** green **CHEAP** = the spread is at or below this market's median for the last
   5 min, amber = normal, red **WIDE** = above its p90 (wait, or use a limit). It shows

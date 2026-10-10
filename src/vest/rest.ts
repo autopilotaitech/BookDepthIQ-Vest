@@ -32,6 +32,19 @@ export function fetchTradesBefore(symbol: string, endTime: number, limit = 1000)
   return getJson<TradeData[]>(`/v3/trades?symbol=${encodeURIComponent(symbol)}&endTime=${Math.floor(endTime)}&limit=${limit}`);
 }
 
+/** POST /v4/market-hours — public; its `key` ({exchange, assetType}) sets the funding class. */
+export async function fetchMarketKey(assetId: number): Promise<{ exchange?: string; assetType?: string } | undefined> {
+  const now = Date.now();
+  const r = await fetch(REST_BASE + '/v4/market-hours', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assetIds: [assetId], fromMs: now, toMs: now + 3600_000 }),
+  });
+  if (!r.ok) throw new Error(`POST /v4/market-hours -> ${r.status}`);
+  const rows = (await r.json()) as Array<{ assetId: number; key?: { exchange?: string; assetType?: string } }>;
+  return rows.find((x) => x.assetId === assetId)?.key;
+}
+
 export function fetchRecentTrades(symbol: string): Promise<TradeData[]> {
   return getJson<TradeData[]>(`/v3/trades?symbol=${encodeURIComponent(symbol)}`);
 }

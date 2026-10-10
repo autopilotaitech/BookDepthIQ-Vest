@@ -20,6 +20,8 @@ export interface SymbolInfo {
   initMarginRatio?: string;
   maintMarginRatio?: string;
   tradingStatus?: string;
+  /** Joins exchangeInfo to /v4/market-hours (funding class). */
+  assetId?: number;
 }
 
 /** [price, qty] — both decimal strings. */
