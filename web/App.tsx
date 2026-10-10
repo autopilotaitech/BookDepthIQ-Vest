@@ -9,7 +9,7 @@ import { edgeRatio, roundTrip, spreadGate } from '../src/panel/cost';
 import { bidShare, imbalances, walls } from '../src/panel/footprint';
 import { indicatorsFor, parseBands, stackZones, type IndicatorCfg } from '../src/panel/indicators';
 import { orLabel, orRoot } from '../src/panel/paxor';
-import { fundingUsdPerHour, hourlyRate, nextSettlement } from '../src/panel/funding';
+import { fundingUsdPerHour, nextSettlement } from '../src/panel/funding';
 import { buildProfile } from '../src/panel/profile';
 import { watchHookStatus, watchUserToken, watchVestTabs } from './liveToken';
 import { liveOpenPnl } from '../src/live/rules';
@@ -445,14 +445,11 @@ export function App() {
     return h.map((v, i) => `${((i / (h.length - 1)) * 110).toFixed(1)},${(20 - ((v - lo) / span) * 18).toFixed(1)}`).join(' ');
   })();
   const toFloorPts = pos.qty ? (equity - floor) / Math.abs(pos.qty) : undefined;
-  // Funding: Vest's current hourly rate, our prediction from the live premium, and what it means for you.
+  // Funding: shown only while you hold a position — what this hour's settlement costs or pays you.
   const fundNow = Date.now();
   const fundRate = m.ticker?.oneHrFundingRate !== undefined ? Number(m.ticker.oneHrFundingRate) : undefined;
   const fundIdx = Number(m.ticker?.indexPrice) || undefined;
-  const hourStart = Math.floor(fundNow / 3600_000) * 3600_000;
-  const premHour = m.premium.avgSince(hourStart);
   const prem5 = m.premium.avgSince(fundNow - 5 * 60_000);
-  const fundPred = premHour !== undefined && m.fundingCls ? hourlyRate(premHour, m.fundingCls) : undefined;
   const fundMinLeft = Math.ceil((nextSettlement(fundNow) - fundNow) / 60_000);
   const fundYou = pos.qty && fundIdx && fundRate !== undefined ? fundingUsdPerHour(pos.qty, fundIdx, fundRate) : undefined;
   const fundWarn = fundYou !== undefined && fundYou > 0 && fundMinLeft <= 5;
@@ -897,24 +894,20 @@ export function App() {
             </b>
           </div>
         )}
-        <div
-          className={fundWarn ? 'fundwarn' : ''}
-          title={`Vest funding, settled hourly on the index notional. Positive: longs pay shorts; negative: shorts pay longs. Predicted = this hour's average premium through Vest's formula (${m.fundingCls ?? 'class loading'}).`}
-        >
-          <label>Funding · {fundMinLeft}m</label>
-          <b>
-            {fundRate === undefined ? '—' : (
-              <>
-                <span className={fundRate > 0 ? 'ddn' : fundRate < 0 ? 'dup' : ''}>{pct(fundRate)}/h</span>
-                <small>
-                  {fundRate > 0 ? ' longs pay' : fundRate < 0 ? ' shorts pay' : ''} · {(fundRate * 24 * 365 * 100).toFixed(1)}% /yr
-                  {fundPred !== undefined ? ` · pred ${pct(fundPred)}` : ''}
-                  {fundYou !== undefined ? ` · you ${fundYou > 0 ? 'pay' : 'get'} $${Math.abs(fundYou).toFixed(2)}/h` : ''}
-                </small>
-              </>
-            )}
-          </b>
-        </div>
+        {fundYou !== undefined && fundRate !== undefined && (
+          <div
+            className={fundWarn ? 'fundwarn' : ''}
+            title="Vest funding, settled hourly on the index notional. Positive: longs pay shorts; negative: shorts pay longs. Red in the last 5 min before a settlement you pay."
+          >
+            <label>Funding · {fundMinLeft}m</label>
+            <b>
+              <span className={fundYou > 0 ? 'ddn' : 'dup'}>
+                {fundYou > 0 ? 'you pay' : 'you get'} ${Math.abs(fundYou).toFixed(2)}/h
+              </span>
+              <small> · {pct(fundRate)}/h</small>
+            </b>
+          </div>
+        )}
         <div title="share of visible resting size on the bid / on the ask">
           <label>Bid / ask liq</label>
           <b>
