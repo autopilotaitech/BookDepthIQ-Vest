@@ -113,6 +113,44 @@ export function App() {
     };
   }, [m]);
 
+  // Vest Liquidity Scanner row click → background stores { symbol, at } in storage.session → switch
+  // here, exactly like picking it in the dropdown (held stops disarm on a switch). Retried for a
+  // few seconds because a freshly opened panel's market list may still be loading.
+  useEffect(() => {
+    type Switch = { symbol?: unknown; at?: unknown };
+    type Area = { get(k: string): Promise<Record<string, Switch | undefined>> };
+    type OnChanged = { addListener(f: (c: Record<string, { newValue?: Switch }>, area: string) => void): void; removeListener(f: unknown): void };
+    const chrome = (globalThis as { chrome?: { storage?: { session?: Area; onChanged?: OnChanged } } }).chrome;
+    const session = chrome?.storage?.session;
+    const onChanged = chrome?.storage?.onChanged;
+    if (!session || !onChanged) return;
+    let retry: ReturnType<typeof setInterval> | undefined;
+    const apply = (v: Switch | undefined) => {
+      if (!v || typeof v.symbol !== 'string' || typeof v.at !== 'number' || Date.now() - v.at > 15_000) return;
+      const sym = v.symbol;
+      const until = (v.at as number) + 15_000;
+      clearInterval(retry);
+      const tryOnce = (): boolean => {
+        if (m.select(sym)) {
+          setCenter(null);
+          update({ symbol: m.info?.symbol ?? sym });
+          return true;
+        }
+        return Date.now() > until; // give up after 15 s
+      };
+      if (!tryOnce()) retry = setInterval(() => tryOnce() && clearInterval(retry), 500);
+    };
+    void session.get('scannerSwitch').then((r) => apply(r.scannerSwitch), () => {});
+    const on = (c: Record<string, { newValue?: Switch }>, area: string) => {
+      if (area === 'session' && c.scannerSwitch) apply(c.scannerSwitch.newValue);
+    };
+    onChanged.addListener(on);
+    return () => {
+      clearInterval(retry);
+      onChanged.removeListener(on);
+    };
+  }, [m, update]);
+
   // Bracket settings are the user's numbers, applied to the paper broker as they change.
   const broker = m.broker;
   useEffect(() => {

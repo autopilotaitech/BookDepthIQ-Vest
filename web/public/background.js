@@ -1,7 +1,16 @@
 // Clicking the toolbar icon opens the panel in its own window (or focuses the one already open).
 let panelWindowId = null;
 
-chrome.action.onClicked.addListener(async () => {
+async function focusOrOpenPanel() {
+  if (panelWindowId === null && chrome.runtime.getContexts) {
+    // The service worker may have restarted and forgotten the id: look for the open panel page.
+    try {
+      const ctx = await chrome.runtime.getContexts({ contextTypes: ['TAB'], documentUrls: [chrome.runtime.getURL('index.html')] });
+      if (ctx[0] && ctx[0].windowId >= 0) panelWindowId = ctx[0].windowId;
+    } catch {
+      /* older Chrome: fall through and open one */
+    }
+  }
   if (panelWindowId !== null) {
     try {
       await chrome.windows.update(panelWindowId, { focused: true });
@@ -17,7 +26,9 @@ chrome.action.onClicked.addListener(async () => {
     height: 980,
   });
   panelWindowId = w.id ?? null;
-});
+}
+
+chrome.action.onClicked.addListener(() => void focusOrOpenPanel());
 
 chrome.windows.onRemoved.addListener((id) => {
   if (id === panelWindowId) panelWindowId = null;
@@ -68,6 +79,15 @@ chrome.runtime.onMessage.addListener((msg, sender) => {
     chrome.storage.session
       .set({ vestHookStatus: { at: Date.now(), apiCalls: n(st.apiCalls), bearer: n(st.bearer), accepted: n(st.accepted), rejectedKeys: keys, reason: String(st.reason || '').slice(0, 60) } })
       .catch(() => {});
+    return;
+  }
+  if (msg.type === 'scanner-switch') {
+    // A row click in the Vest Liquidity Scanner opened this Vest page with #bdiq-switch. It only
+    // ever switches the panel's instrument (the panel resolves and validates the name); never orders.
+    const sym = typeof msg.symbol === 'string' ? msg.symbol : '';
+    if (!/^[A-Za-z0-9-]{1,40}$/.test(sym)) return;
+    chrome.storage.session.set({ scannerSwitch: { symbol: sym, at: Date.now() } }).catch(() => {});
+    void focusOrOpenPanel();
     return;
   }
   if (msg.type !== 'vest-user-token' || typeof msg.token !== 'string') return;

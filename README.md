@@ -7,7 +7,9 @@ orders, B/E and one-key flatten.
 
 **Companion:** [Vest Liquidity Scanner](https://github.com/autopilotaitech/BookDepthIQ-Vest-Scanner)
 ranks all of Vest's markets by real trading, volatility and trend vs chop, so you know which one to
-open in this panel. Read-only, separate install.
+open in this panel. Read-only, separate install. Clicking a scanner row switches this panel to
+that market (through a `#bdiq-switch` marker on the Vest link it opens; nothing but the instrument
+changes, and held stops disarm as on any switch).
 
 ![BookDepthIQ-Vest panel: footprint ladder with liquidity heat, volume profile, delta, dual SuperTrend and VWAP lines, cost panel and Vest tape](docs/images/panel.png)
 
