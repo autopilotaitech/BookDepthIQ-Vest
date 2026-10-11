@@ -15,11 +15,11 @@ describe('funding (Vest docs formula)', () => {
     expect(hourlyRate(-0.001, 'cmeIndex')).toBeCloseTo(-0.001 / 48, 12);
   });
 
-  it("matches Vest's BTC worked example: P 0.12%, clamp ±0.003% → 0.004875%/hr", () => {
-    // I = 10.95% × 24 / 8760 = 0.03%; I − P = −0.09% → clamped to −0.003%
-    expect(hourlyRate(0.0012, 'crypto')).toBeCloseTo(0.00004875, 12);
-    // $1M position pays $48.75 an hour
-    expect(fundingUsdPerHour(1, 1_000_000, hourlyRate(0.0012, 'crypto'))).toBeCloseTo(48.75, 6);
+  it("matches Vest's BTC worked example: P 0.12%, clamp ±0.03% (K = 1) → 0.00375%/hr", () => {
+    // I = 10.95% × 24 / 8760 = 0.03%; I − P = −0.09% → clamped to −0.03%
+    expect(hourlyRate(0.0012, 'crypto')).toBeCloseTo(0.0000375, 12);
+    // $1M position pays $37.50 an hour
+    expect(fundingUsdPerHour(1, 1_000_000, hourlyRate(0.0012, 'crypto'))).toBeCloseTo(37.5, 6);
   });
 
   it('premium sample from impact prices; none when a side cannot fill', () => {

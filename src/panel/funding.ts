@@ -1,8 +1,8 @@
 // Funding: what Vest's hourly funding costs or pays you, and a live prediction of it. Pure: no I/O.
 //
-// Vest docs (trading/funding-mechanism, read 2026-10-10):
+// Vest docs (trading/funding-mechanism, read 2026-10-10; K changed 0.1 → 1 by 2026-10-11):
 //   hourly rate = [P + clamp(I − P, −K·I, +K·I)] / H, settled hourly, on notional at the INDEX price
-//   P = average premium over the hour;  I = annual × H / (365 × 24);  K = 0.1 for all symbols
+//   P = average premium over the hour;  I = annual × H / (365 × 24);  K = 1 for all markets
 //   premium = [max(buyImpact − index, 0) − max(index − sellImpact, 0)] / index, where impact prices
 //   are the average fills of a $100 / initial-margin-ratio order (a sample counts only if both
 //   sides fully fill).  Positive rate: longs pay shorts. Negative: shorts pay longs.
@@ -22,7 +22,7 @@ export const FUNDING_PARAMS: Record<FundingClass, { annual: number; H: number }>
   cmeOther: { annual: 0, H: 120 },
   other: { annual: 0.05, H: 120 },
 };
-export const FUNDING_K = 0.1;
+export const FUNDING_K = 1;
 
 /** Class from Vest's market-hours key (exchange + assetType), as /v4/market-hours reports it. */
 export function fundingClass(key: { exchange?: string; assetType?: string } | undefined): FundingClass {
