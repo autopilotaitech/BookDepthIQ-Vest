@@ -265,11 +265,13 @@ results are exact (fees in); LIVE ones are the last marked P&L (≈). Kept in th
   within 4 s**; the reason shows in the amber bar.
 - **Day lock bar:** when Protect my day locks entries, a red bar over the ticket says why and that
   exits still work.
-- **ABS** tags on the price column (toggle **abs** in the tape header): **ABS** cyan = in the last
-  minute sellers kept hitting that bid (at least your big-trade size, 2× the buying there), more
-  than was showing when they started, the level held and at least half the size is still there:
-  buyers absorbing. Orange = the same at an offer. (The v1.8 heatmap and pull/stack were removed:
-  on Vest they mostly showed the market maker re-quoting.)
+- **heat 5m · pull/stack** column (toggle **heat** in the tape header): resting size at each price
+  over the last 5 minutes (left = older; cyan bids, orange offers, brighter = more, yellow = the biggest size on screen), then size **pulled** (− red: left without
+  trading) or **stacked** (+ green) over the last minute. **ABSORB bid** = sellers kept hitting that
+  bid (at least your big-trade size, and 2× the buying there), more than was showing when they
+  started, the level held (no trade below it since) and at least half the size is still there:
+  buyers absorbing (a cyan **ABS** badge at the left of the cell). **ABSORB ask** is the same at an offer (orange **ABS**). The market maker's constant re-quoting
+  plays no part.
 - **Replay:** the panel records the market on screen (book 4×/s, every trade, ticker) into this
   browser, kept 7 days. **Replay ○** in the header lists the recordings; **▶ start** plays one
   through the ladder in PAPER only (LIVE is off; a fresh paper account), with « 1m / 1m », 1–10×
@@ -287,7 +289,6 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
 
 | Version | What changed |
 |---|---|
-| 1.8.3 | Heatmap and pull/stack removed (they showed Vest's market maker re-quoting, not traders); ABSORB kept as an ABS tag on the price. |
 | 1.8.0 | KILL, FEED/VEST health pills, LIVE order status + blotter, fat-finger checks (second click), day-lock bar, heat/pull/stack column, record + replay, execution columns in the journal. |
 | 1.7.1 | Swing stop **≥ min** floor; SuperTrend loads 45 min of history on open; RANGE H/L pinned when off-screen. |
 | 1.7.0 | **SWING** stop, **STP 1m CLOSE** stop entries, market state (**TREND / CHOP / EXTENDED**) with range lines, trade **journal** with setup tags. Off-screen labels take one line instead of crowding out the ladder. PAPER keeps the stop and targets from the click (an ATR or swing stop no longer changes at the fill). |

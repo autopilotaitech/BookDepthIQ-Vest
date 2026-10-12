@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { Book } from '../src/book/book.js';
-import { LiquidityTracker } from '../src/panel/liquidity.js';
+import { BIN_MS, LiquidityTracker } from '../src/panel/liquidity.js';
 import { feedHealth, needsConfirm, percentiles, tradeChecks } from '../src/panel/checks.js';
 import { Blotter, describeWrite } from '../src/live/blotter.js';
 import { MemStore, Player, Recorder, chunkKey, listSessions, type Rec } from '../src/panel/replay.js';
@@ -12,13 +12,30 @@ const book = (bids: Array<[number, number]>, asks: Array<[number, number]>): Boo
   tsMs: 0,
 });
 
-describe('absorption', () => {
+describe('liquidity: heat, pull/stack, absorb', () => {
   /** A 6-level book (bids 100..95, asks 101..106), size 10 each, with overrides. */
   const deep = (o: Record<number, number> = {}) =>
     book(
       [100, 99, 98, 97, 96, 95].map((t) => [t, o[t] ?? 10] as [number, number]),
       [101, 102, 103, 104, 105, 106].map((t) => [t, o[t] ?? 10] as [number, number]),
     );
+
+  it('size that leaves without trading is pulled; size that arrives is stacked', () => {
+    const l = new LiquidityTracker();
+    l.onBook(deep(), 0);
+    l.onTrade(101, 3); // 3 traded at 101
+    l.onBook(deep({ 100: 14, 101: 2 }), 1000); // 101 lost 8: 3 traded, 5 pulled; 100 gained 4
+    expect(l.flow(101)).toMatchObject({ pulled: 5, traded: 3, net: -5 });
+    expect(l.flow(100)).toMatchObject({ stacked: 4, net: 4 });
+  });
+
+  it('the outermost levels (they flicker in and out of view) are left out', () => {
+    const l = new LiquidityTracker();
+    l.onBook(deep(), 0);
+    l.onBook(deep({ 95: 40, 106: 0 }), 1000);
+    expect(l.flow(95).net).toBe(0);
+    expect(l.flow(106).net).toBe(0);
+  });
 
   it('ABSORB bid: sellers hit 100 for more than was showing, it held and still has size', () => {
     const l = new LiquidityTracker();
@@ -54,6 +71,13 @@ describe('absorption', () => {
     expect(l.absorb(100, 1, 5)).toBeUndefined(); // 6 sold, but 30 was showing
   });
 
+  it('heat keeps one bin per 10 s, raw sizes summed over the row', () => {
+    const l = new LiquidityTracker();
+    l.onBook(book([[100, 5], [101, 2]], []), 0);
+    l.onBook(book([[100, 10], [101, 2]], []), BIN_MS);
+    l.onBook(book([[100, 0]], []), 2 * BIN_MS);
+    expect(l.heat(100, 2)).toEqual([7, 12, 0]); // bins end-of-bin: 5+2, 10+2; now 0
+  });
 });
 
 describe('fat-finger checks and health', () => {
@@ -147,3 +171,14 @@ describe('record and replay', () => {
   });
 });
 
+describe('pull/stack noise filter', () => {
+  it('re-quoting churn with a small net is not a signal; a real pull is', () => {
+    const b = (s100: number, s99: number) => book([[100, s100], [99, s99], [98, 10], [97, 10], [96, 10], [95, 10]], [[101, 10], [102, 10], [103, 10], [104, 10], [105, 10], [106, 10]]);
+    const l = new LiquidityTracker();
+    l.onBook(b(10, 10), 0);
+    for (let k = 1; k <= 10; k++) l.onBook(b(k % 2 ? 0 : 10, 10), k * 200); // 100 flickers 10 ↔ 0
+    expect(l.flow(100).signal).toBe(false);
+    l.onBook(b(10, 0), 3000); // 99 pulled for real
+    expect(l.flow(99)).toMatchObject({ net: -10, signal: true });
+  });
+});

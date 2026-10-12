@@ -66,7 +66,7 @@ export interface Settings {
   setup: string;
   /** Side panel shows the trade journal instead of the tape. */
   showJournal: boolean;
-  /** Ladder: ABS (absorption) tags on the price column. (Was the v1.8 heat column; key kept.) */
+  /** Ladder: heatmap of resting size (5 min) + pull/stack column. */
   showHeat: boolean;
   /** Fat-finger: warn when a limit/stop is this many points from the market (0 = 4 × ATR), and when
    * the size is this many × your normal. A warning needs a second click; nothing is blocked. */
