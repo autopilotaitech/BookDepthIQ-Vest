@@ -324,6 +324,7 @@ export function App() {
     if (resumeTimer.current) clearTimeout(resumeTimer.current);
     resumeTimer.current = null;
     setFollow(true);
+    setCenter(null); // Space / FOLLOW: snap to the market now
   }, []);
   const detachBriefly = useCallback(() => {
     setFollow(false);
@@ -335,10 +336,20 @@ export function App() {
   }, []);
 
   const mid = m.mid();
+  // Calm follow (v1.6.4): the ladder holds still and re-centres only when price has drifted a sixth
+  // of the screen from the middle. While the pointer is over the ladder (placing or dragging an
+  // order) it does not move at all unless price gets within 3 rows of the edge.
+  const [overLadder, setOverLadder] = useState(false);
+  const holdStill = overLadder || drag !== null;
   useEffect(() => {
     if (mid === undefined) return;
-    if (follow || center === null) setCenter(bucketOf(Math.round(mid), g));
-  }, [mid, follow, center, g]);
+    const c = bucketOf(Math.round(mid), g);
+    if (center === null) return setCenter(c);
+    if (!follow) return;
+    const rowsOff = Math.abs(c - center) / g;
+    const limit = holdStill ? nRows / 2 - 3 : Math.max(2, Math.floor(nRows / 6));
+    if (rowsOff > limit) setCenter(c);
+  }, [mid, follow, center, g, holdStill, nRows]);
   // A group change re-snaps the centre onto the new bucket grid.
   useEffect(() => {
     setCenter((c) => (c === null ? c : bucketOf(c, g)));
@@ -1345,6 +1356,8 @@ export function App() {
       <main className="body">
         <div
           className="ladder g8"
+          onPointerEnter={() => setOverLadder(true)}
+          onPointerLeave={() => setOverLadder(false)}
           onWheel={(e) => {
             if (center === null) return;
             detachBriefly();

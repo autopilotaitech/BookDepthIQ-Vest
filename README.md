@@ -209,7 +209,9 @@ shows how much of the drawdown allowance is left (amber under 50%, red under 25%
 - **F** = flatten and **Esc** = cancel all. Both always work.
 - **B** buy, **S** sell, **E** B/E and **R** reverse work only while **HOTKEYS ARMED** is on. Click
   the toggle to arm them.
-- **Space** re-centres the ladder.
+- **Space** re-centres the ladder. Otherwise the ladder holds still and re-centres only when price
+  drifts a sixth of the screen from the middle. While your mouse is over the ladder it doesn't move
+  at all (unless price nears the edge), so the row you aim at stays put.
 - Wheel over the PRICE column changes the price grouping: 1, 2, 4, 8, 20, 40 or 100 ticks per row.
 
 **The result bar.** Every LIVE action shows its result right under the LIVE banner: green ✓ when
