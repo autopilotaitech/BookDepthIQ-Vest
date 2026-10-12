@@ -127,7 +127,8 @@ and delta count from when the panel opens.
   closes through it **and** that candle's delta agrees.
 - The header badge shows the combined state (▲▲ STRONG LONG … ▼▼ STRONG SHORT) and confidence,
   and pulses on a flip. The strip shows points from price to each line. Toggle with **ST** in the
-  tape header. It warms up from Vest's recent trades; ST1 needs about 10 one-minute candles.
+  tape header. On open it loads the last ~45 minutes of Vest trades ("SuperTrend loading 45
+  min…"), so ST1, ST2 and the market state are right from the start instead of after 10+ minutes.
 
 **VWAP, imbalances and big trades** (settings → *Indicators*, saved per instrument)
 - **VWAP** with σ bands (default 1 and 2), anchored to your session **start/stop time** and time
@@ -193,11 +194,13 @@ and delta count from when the panel opens.
   costs that much, **taker fees both ways included**. $ risk sizing always counts the fees.
 - **STOP PTS / ATR / SWING**: in ATR mode the stop is the ATR of the 60 s candles (the ST1 engine)
   × your multiple. In SWING mode a long's stop goes under the low of the last N minutes and a
-  short's over the high, plus your buffer, so it sits beyond the structure; the ticket shows both
-  sides (**L x / S y pts**) and, in $ risk sizing, both sizes. In both modes the targets are R
+  short's over the high, plus your buffer, so it sits beyond the structure, and never closer than
+  your **≥ min** (0 = no floor; an entry right at the high/low would otherwise get a stop inside
+  the noise). The ticket shows both sides (**L x / S y pts**) and, in $ risk sizing, both sizes. In both modes the targets are R
   multiples of the stop and the size follows it, so the $ risk stays the same.
-- **STP TOUCH / 1m CLOSE**: stop entries (shift-click) fire on the first trade through the price, or
-  only once a one-minute bar closes through it, so a wick doesn't fill you on a false break.
+- **STP TOUCH / 1m CLOSE** (TOUCH by default): stop entries (shift-click) fire on the first trade
+  through the price, or, with 1m CLOSE, only once a one-minute bar closes through it, so a spike
+  that pokes through and comes back doesn't fill you on a false break.
 - **setup** tags the next trade (edge fade, breakout, pullback, trend…) for the journal.
 - **PREVIEW LONG / SHORT** shows the stop and targets (◇, dashed) on the ladder before you enter,
   with their $. Nothing is sent. Drag the ◇ stop to change it: in $ risk sizing the size follows, so
@@ -236,11 +239,13 @@ floor** bar under the account row shows how much of the drawdown allowance is le
 
 **Market state** (header, next to the SuperTrend badge): **TREND ▲ / ▼** when ST1 and ST2 agree
 and haven't been flipping; **CHOP — fade the edges** when they disagree or have flipped 3+ times in
-15 min, with the last 30 minutes' **RANGE H / RANGE L** drawn on the ladder; **EXTENDED, don't
+15 min, with the last 30 minutes' **RANGE H / RANGE L** drawn on the ladder (pinned at the edge
+when off-screen); **EXTENDED, don't
 chase** when price is 2σ+ from VWAP or 3+ ATR from ST1. It describes the market; it doesn't call
 trades.
 
-**Journal** (button in the tape header): every round trip on the market on screen, with the setup
+**Journal** (the **journal** button top-right, in the Vest tape header next to *ST on* and *hide
+log*; click again for the tape): every round trip on the market on screen, with the setup
 tag, size, entry, stop, $ result and R, totals and results per setup, and **copy CSV**. PAPER
 results are exact (fees in); LIVE ones are the last marked P&L (≈). Kept in this browser.
 
@@ -252,6 +257,7 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
 
 | Version | What changed |
 |---|---|
+| 1.7.1 | Swing stop **≥ min** floor; SuperTrend loads 45 min of history on open; RANGE H/L pinned when off-screen. |
 | 1.7.0 | **SWING** stop, **STP 1m CLOSE** stop entries, market state (**TREND / CHOP / EXTENDED**) with range lines, trade **journal** with setup tags. Off-screen labels take one line instead of crowding out the ladder. PAPER keeps the stop and targets from the click (an ATR or swing stop no longer changes at the fill). |
 | 1.6.5 | The trail menu applies to the position you're already in, not only the next entry. |
 | 1.6.4 | Calm ladder: re-centres only when price drifts a sixth of the screen, and holds still under your mouse. |
