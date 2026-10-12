@@ -141,7 +141,9 @@ export function App() {
   const [s, setS] = useState<Settings>(loadSettings);
   const [center, setCenter] = useState<number | null>(null);
   const [drag, setDrag] = useState<{ id: number; from: number } | null>(null);
-  const g = Math.max(1, s.groupTicks);
+  // Rows per price: your zoom, widened when needed so the stop, targets and trail fit on screen.
+  const [fitG, setFitG] = useState(1);
+  const g = Math.max(1, s.groupTicks, fitG);
   const bk = (x: number | undefined) => (x === undefined ? undefined : bucketOf(x, g));
   // Hotkeys that OPEN risk (B/S/R/E) only work while armed; F (flatten) and Esc (cancel all) always do.
   const [armed, setArmed] = useState(false);
@@ -773,6 +775,38 @@ export function App() {
     addLine(l.ticks, `${cls}${orForming ? ' forming' : ''}`, orForming && (l.kind === 'high' || l.kind === 'low') ? `${orLabel(l)} forming` : orLabel(l));
   }
   if (ind.fpOn && ind.fpLines) for (const z of stackZones(imb.buyStack, imb.sellStack, g)) addLine(z.ticks, z.side === 'buy' ? 'zone-buy' : 'zone-sell', `STACK ${z.side === 'buy' ? '▲' : '▼'}${z.rows}`);
+  // The bracket drawn across the ladder like chart lines: stop, entry, targets, where the trail
+  // starts, each with its $. In a trade: the real legs. Flat with PREVIEW on: the would-be ones.
+  const brLines: Array<{ ticks: number; cls: string; label: string }> = [];
+  if (pos.qty !== 0) {
+    const dir = pos.qty > 0 ? 1 : -1;
+    const q = Math.abs(pos.qty);
+    brLines.push({ ticks: Math.round(pos.avgTicks), cls: 'br-in', label: `IN ${formatPrice(Math.round(pos.avgTicks), tick)}` });
+    for (const o of orders.filter((x) => x.leg)) {
+      const usd = (o.priceTicks - pos.avgTicks) * dir * Math.min(o.qty, q) * tick;
+      brLines.push({ ticks: o.priceTicks, cls: o.leg === 'sl' ? 'br-sl' : 'br-tp', label: `${o.leg === 'sl' ? 'SL' : 'TP'} ${fmtUsd(usd)}` });
+    }
+    if (s.trailStartR > 0 && slEff > 0) brLines.push({ ticks: Math.round(pos.avgTicks + dir * s.trailStartR * slEff), cls: 'br-trail', label: `TRAIL starts here (${s.trailStartR}R)` });
+  } else if (pvRef !== undefined && pvChips.length) {
+    const dir = pvLong ? 1 : -1;
+    brLines.push({ ticks: pvRef, cls: 'br-in pv', label: `PREVIEW ${pvLong ? 'LONG' : 'SHORT'} ${units}u` });
+    for (const o of pvChips)
+      brLines.push({
+        ticks: o.priceTicks,
+        cls: `${o.leg === 'sl' ? 'br-sl' : 'br-tp'} pv`,
+        label: o.leg === 'sl' ? `SL −$${(refPx ? riskWithFees(units, slEff, tick, refPx, feeRate) : 0).toFixed(2)}${atrMode ? ` (${s.atrMult}× ATR)` : ''}` : `TP +$${(o.qty * Math.abs(o.priceTicks - pvRef) * tick).toFixed(2)}`,
+      });
+    if (s.trailStartR > 0 && slEff > 0) brLines.push({ ticks: pvRef + dir * Math.round(s.trailStartR * slEff), cls: 'br-trail pv', label: `TRAIL starts (${s.trailStartR}R)` });
+  }
+  for (const l of brLines) addLine(l.ticks, l.cls, l.label);
+  const fitSpan = brLines.length && mid !== undefined ? Math.max(...brLines.map((l) => Math.abs(l.ticks - mid))) : 0;
+  useEffect(() => {
+    const half = nRows / 2 - 2;
+    let need = 1;
+    while (need < 100 && fitSpan / need > half) need = stepGroup(need, 1);
+    // A little slack before zooming back in, so the rows don't flicker at the edge.
+    setFitG((prev) => (need < prev && fitSpan / need > half * 0.8 ? prev : need));
+  }, [fitSpan, nRows]);
   const markers = [
     ...orders.map((o) => ({ label: o.leg ? o.leg.toUpperCase() : o.type === 'stop' ? 'STP' : 'LMT', ticks: o.priceTicks })),
     ...pvChips.map((o) => ({ label: `${o.leg === 'sl' ? 'SL' : 'TP'} ◇ preview`, ticks: o.priceTicks })),
@@ -1325,7 +1359,7 @@ export function App() {
             <span className="liqhead bid" title="resting bid size as heat · WALL = 3× the average level">bid liq</span>
             <span title="wheel over the price column to group rows">
               {follow ? (
-                <>price{g > 1 ? ` ×${g} (${(g * tick).toFixed(dec)})` : ''}</>
+                <>price{g > 1 ? ` ×${g} (${(g * tick).toFixed(dec)})` : ''}{fitG > s.groupTicks ? ' · fit to bracket' : ''}</>
               ) : (
                 <button className="follow-pill" onClick={resumeFollow} title="back to the market now (Space); resumes by itself 3 s after you stop scrolling">
                   ▶ FOLLOW

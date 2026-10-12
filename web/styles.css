@@ -454,3 +454,14 @@ b { font-weight: 600; }
 .mini.on { border-color: var(--warn); color: var(--warn); }
 .protect { border: 1px solid var(--line); margin: 6px 0; padding: 4px 8px; display: flex; flex-wrap: wrap; gap: 10px; }
 .protect legend { color: var(--muted); font-size: 11px; }
+
+/* v1.6.1 — the bracket drawn across the ladder */
+.lrow .hl.br-sl { border-top: 2px solid #f87171; }
+.lrow .hl.br-tp { border-top: 2px solid #34d399; }
+.lrow .hl.br-in { border-top: 2px solid #94a3b8; }
+.lrow .hl.br-trail { border-top: 2px dashed #fbbf24; }
+.lrow .hl.pv { border-top-style: dashed; opacity: 0.85; }
+.lrow .hltag.br-sl { color: #fecaca; border: 1px solid #f87171; }
+.lrow .hltag.br-tp { color: #bbf7d0; border: 1px solid #34d399; }
+.lrow .hltag.br-in { color: #e2e8f0; border: 1px solid #94a3b8; }
+.lrow .hltag.br-trail { color: #fde68a; border: 1px solid #fbbf24; }
