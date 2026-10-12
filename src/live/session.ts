@@ -637,19 +637,21 @@ export class LiveSession {
 
   // ───────────── panel-held stop entries ─────────────
 
-  /** Arm a buy stop (above the ask) or sell stop (below the bid). LIVE only, needs a fresh login. */
-  armStop(side: Side, ticks: number, units: number, m: MarketCtx, br: BracketCtx): Check {
+  /** Arm a buy stop (above the ask) or sell stop (below the bid). LIVE only, needs a fresh login.
+   * `confirm` 'close' = fire only on a one-minute close at/through it. */
+  armStop(side: Side, ticks: number, units: number, m: MarketCtx, br: BracketCtx, confirm: 'touch' | 'close' = 'touch'): Check {
     if (this.mode !== 'live') return no('stops are LIVE only (PAPER has its own stop orders)');
     if (!this.tokenOk()) return no(`no Vest login: ${this.loginProblem()}`);
     const f = 10 ** m.info.sizeDecimals;
     const r = this.stops.arm(
-      { symbol: m.info.symbol, side, ticks, units: Math.round(units * f) / f, bracketsOn: br.bracketsOn, tpTicks: br.tpTicks, slTicks: br.slTicks, trailStartR: br.trailStartR, trailLine: br.trailLine, armedAt: this.deps.now() },
+      { symbol: m.info.symbol, side, ticks, units: Math.round(units * f) / f, bracketsOn: br.bracketsOn, tpTicks: br.tpTicks, slTicks: br.slTicks, trailStartR: br.trailStartR, trailLine: br.trailLine, confirm, armedAt: this.deps.now() },
       m.bid,
       m.ask,
     );
-    if (r.ok) this.write(`⚡ ${side.toUpperCase()} STOP ${r.stop!.units} armed @ ${priceString(ticks, m.tick, m.info.priceDecimals)} — panel-held, fires a MARKET entry`);
+    const how = confirm === 'close' ? 'on a 1-min CLOSE at/through it' : 'on a trade at/through it';
+    if (r.ok) this.write(`⚡ ${side.toUpperCase()} STOP ${r.stop!.units} armed @ ${priceString(ticks, m.tick, m.info.priceDecimals)} — panel-held, fires a MARKET entry ${how}`);
     this.deps.onChange();
-    return r.ok ? ok(`${side.toUpperCase()} STOP armed @ ${priceString(ticks, m.tick, m.info.priceDecimals)} (panel-held: keep this window open)`) : no(r.message);
+    return r.ok ? ok(`${side.toUpperCase()} STOP armed @ ${priceString(ticks, m.tick, m.info.priceDecimals)}, fires ${how} (panel-held: keep this window open)`) : no(r.message);
   }
 
   cancelStop(id: number): Check {
@@ -688,7 +690,7 @@ export class LiveSession {
     if (this.stops.size === 0) return;
     if (this.mode !== 'live') return this.disarmStops('not in LIVE');
     if (!this.tokenOk()) return this.disarmStops('Vest login expired');
-    const fired: ArmedStop[] = this.stops.onTrade(m.info.symbol, priceTicks);
+    const fired: ArmedStop[] = this.stops.onTrade(m.info.symbol, priceTicks, this.deps.now());
     for (const s of fired) {
       const px = priceString(s.ticks, m.tick, m.info.priceDecimals);
       this.write(`⚡ ${s.side.toUpperCase()} STOP @ ${px} hit (trade ${priceString(priceTicks, m.tick, m.info.priceDecimals)}) — sending MARKET ${s.units}`);

@@ -1,4 +1,5 @@
 import { bestAsk, bestBid, bookFromDepth, midTicks, spreadTicks, type Book } from '../book/book.js';
+import { MinuteBars } from './structure.js';
 import type { TrendLines } from '../live/manage.js';
 import { ladderScore } from '../book/stats.js';
 import { signedQty } from './profile.js';
@@ -81,8 +82,16 @@ export class PanelModel {
   private lastPremiumAt = 0;
   /** Most recent flip: which line, new direction, when (ms). */
   lastFlip: { line: 1 | 2; dir: 'up' | 'down'; at: number } | null = null;
+  /** Times of SuperTrend flips (either line), for the CHOP read. */
+  flips: number[] = [];
+  /** One-minute highs/lows of the market on screen (swing stops, the range). */
+  readonly bars = new MinuteBars();
   /** Live trades fed to the trend; REST seeding only runs before the first one. */
   private trendLive = 0;
+  /** While the SuperTrend warms up from history, live trades wait here (fed after, in time order). */
+  private trendWarm: { sym: string; buf: Array<{ id: string; time: number; t: number; q: number; buy: boolean }> } | null = null;
+  /** True while the last ~45 minutes of trades are loading into the SuperTrend. */
+  trendLoading = false;
   /** Indicator settings for the symbol on screen (set by the panel). */
   ind: IndicatorCfg = DEFAULT_INDICATORS;
   /** Session VWAP over `vwapWin` (trade prices in ticks). */
@@ -223,8 +232,12 @@ export class PanelModel {
           const sq = signedQty(msg.data.side, q);
           this.deltaAt.set(t, (this.deltaAt.get(t) ?? 0) + sq);
           this.cumDelta += sq;
-          this.feedTrend(msg.data.time, t, q, msg.data.side === 'buy');
-          if (this.broker) this.broker.trendLines = this.trendLines();
+          if (this.trendWarm && this.trendWarm.sym === sym) this.trendWarm.buf.push({ id: msg.data.id, time: msg.data.time, t, q, buy: msg.data.side === 'buy' });
+          else this.feedTrend(msg.data.time, t, q, msg.data.side === 'buy');
+          if (this.broker) {
+            this.broker.trendLines = this.trendLines();
+            this.broker.onTradePrint(t, msg.data.time);
+          }
           this.onIndicatorTrade(msg.data.time, t, q);
           this.trendLive++;
           // Panel-held stops, trailing stops and B/E after TP1 read the trade feed (LIVE only).
@@ -297,6 +310,8 @@ export class PanelModel {
         .catch(() => {});
     }
     this.lastFlip = null;
+    this.flips = [];
+    this.bars.clear();
     this.trendLive = 0;
     this.lastTradeTicks = undefined;
     this.spreadWin = new SpreadWindow();
@@ -316,6 +331,7 @@ export class PanelModel {
     this.broker = broker;
     this.sock.subscribe(info.symbol, ['depth', 'trades', 'ticker']);
     void this.seedTape(info.symbol);
+    void this.warmTrend(info.symbol);
     this.changed();
     return true;
   }
@@ -331,14 +347,47 @@ export class PanelModel {
         .filter((r) => !seen.has(r.id))
         .map((r) => ({ id: r.id, priceTicks: Math.round(Number(r.price) / tick), qty: Number(r.qty), side: r.side, time: r.time }));
       this.tape = [...this.tape, ...older].sort((a, b) => b.time - a.time).slice(0, 200);
-      // Warm the SuperTrend from Vest's recent trades, oldest first, if no live trade has
-      // reached it yet (feeding older trades after newer ones would break the candles).
-      if (this.trendLive === 0) for (const r of [...older].sort((a, b) => a.time - b.time)) this.feedTrend(r.time, r.priceTicks, r.qty, r.side === 'buy');
+      // The SuperTrend warms from ~45 min of history instead (warmTrend).
       if (this.lastTradeTicks === undefined && this.tape[0]) this.lastTradeTicks = this.tape[0].priceTicks;
       this.changed();
     } catch (e) {
       this.note(`recent trades unavailable: ${(e as Error).message}`);
     }
+  }
+
+  /**
+   * Warm the SuperTrend (and the minute bars) from the last ~45 minutes of Vest trades, so ST1's
+   * ten 1-minute candles, the CHOP/TREND state and swing stops are right when the panel opens, not
+   * after 10+ minutes. Live trades arriving meanwhile are held and fed after, in time order.
+   */
+  private async warmTrend(sym: string): Promise<void> {
+    const warm: NonNullable<typeof this.trendWarm> = { sym, buf: [] };
+    this.trendWarm = warm;
+    this.trendLoading = true;
+    this.changed();
+    const from = Date.now() - 45 * 60_000;
+    const rows = new Map<string, { time: number; t: number; q: number; buy: boolean }>();
+    try {
+      let end = Date.now();
+      for (let page = 0; page < 40 && end > from; page++) {
+        const got = await fetchTradesBefore(sym, end, 1000);
+        if (this.trendWarm !== warm) return; // symbol changed meanwhile
+        if (!got.length) break;
+        for (const r of got) if (r.time >= from) rows.set(r.id, { time: r.time, t: Math.round(Number(r.price) / this.tick), q: Number(r.qty), buy: r.side === 'buy' });
+        const oldest = got[got.length - 1]!.time;
+        if (oldest >= end) break;
+        end = oldest;
+      }
+    } catch (e) {
+      this.note(`SuperTrend history unavailable (${(e as Error).message}) — it warms up from live trades`);
+    }
+    if (this.trendWarm !== warm) return;
+    for (const b of warm.buf) rows.set(b.id, b);
+    for (const r of [...rows.values()].sort((a, b) => a.time - b.time)) this.feedTrend(r.time, r.t, r.q, r.buy);
+    this.trendWarm = null;
+    this.trendLoading = false;
+    if (this.broker) this.broker.trendLines = this.trendLines();
+    this.changed();
   }
 
   /** Panel → model: indicator settings for the symbol on screen. Re-anchors VWAP when its session changes. */
@@ -468,11 +517,16 @@ export class PanelModel {
   }
 
   private feedTrend(timeMs: number, priceTicks: number, qty: number, isBuy: boolean): void {
+    this.bars.add(timeMs, priceTicks);
     const snap = this.trend.onTrade(timeMs, priceTicks, qty, isBuy);
     if (!snap) return;
     this.trendSnap = snap;
     if (snap.t1.switched && snap.t1.dir !== 'neutral') this.lastFlip = { line: 1, dir: snap.t1.dir, at: timeMs };
     else if (snap.t2.switched && snap.t2.dir !== 'neutral') this.lastFlip = { line: 2, dir: snap.t2.dir, at: timeMs };
+    if ((snap.t1.switched && snap.t1.dir !== 'neutral') || (snap.t2.switched && snap.t2.dir !== 'neutral')) {
+      this.flips.push(timeMs);
+      if (this.flips.length > 50) this.flips.shift();
+    }
   }
 
   /** Stop streaming a symbol that is not on screen and has nothing working. */

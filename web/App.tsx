@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { bestAsk, bestBid } from '../src/book/book';
 import { PanelModel } from '../src/panel/model';
-import { formatPrice, tickDecimals, type Result, type Side, type WorkingOrder } from '../src/sim/paper';
+import { formatPrice, tickDecimals, type BracketSettings, type Result, type Side, type WorkingOrder } from '../src/sim/paper';
+import { journalCsv, journalStats, marketState, rMultiple, swingStopTicks, type JournalTrade } from '../src/panel/structure';
 import { failPrice, leverageUsed, marginUsed, maxUnits, unitsForNotional } from '../src/sim/account';
 import { dayCheck, dayLimitHit, riskWithFees, tradingDay, unitsForRiskWithFees, type DayState } from '../src/panel/protect';
 import { weekendCloseAt } from '../src/live/manage';
@@ -68,6 +69,54 @@ function PointsInput(props: { ticks: number; tick: number; signed?: boolean; onT
       }}
       onBlur={() => setEditing(false)}
     />
+  );
+}
+
+/** The trade journal: totals, results by setup, the last trades, CSV export. */
+function JournalView(props: { trades: JournalTrade[]; onClear: () => void }) {
+  const { trades, onClear } = props;
+  const st = journalStats(trades);
+  const fR = (r: number | undefined) => (r === undefined ? '—' : `${r >= 0 ? '+' : ''}${r.toFixed(2)}R`);
+  return (
+    <div className="journal">
+      <div className="jsum">
+        <b>{st.n}</b> trades · <b>{Math.round(st.winRate * 100)}%</b> won · <b className={pnlClass(st.totalUsd)}>{fmtUsd(st.totalUsd)}</b> · avg <b>{fR(st.avgR)}</b>
+      </div>
+      {st.bySetup.length > 1 && (
+        <div className="jset">
+          {st.bySetup.map((x) => (
+            <span key={x.setup}>
+              {x.setup} {x.n}: <span className={pnlClass(x.totalUsd)}>{fmtUsd(x.totalUsd)}</span> {fR(x.avgR)}
+            </span>
+          ))}
+        </div>
+      )}
+      <div className="jbtns">
+        <button className="mini" onClick={() => void navigator.clipboard?.writeText(journalCsv(trades)).catch(() => {})}>
+          copy CSV
+        </button>
+        <button className="mini" onClick={onClear}>
+          clear
+        </button>
+      </div>
+      {[...trades]
+        .reverse()
+        .slice(0, 60)
+        .map((t) => (
+          <div key={`${t.open}-${t.sym}`} className="jrow" title={`${t.mode} · entry ${t.entry}${t.exit ? ` → ${t.exit}` : ''}${t.stop ? ` · stop ${t.stop}` : ''} · ${t.stopMode} stop${t.approx ? ' · LIVE result is the last marked P&L (≈)' : ''}`}>
+            <span>{new Date(t.close).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
+            <span>{t.sym.replace(/-PERP$/, '')}</span>
+            <span className={t.side === 'long' ? 'pos' : 'neg'}>{t.side === 'long' ? 'L' : 'S'}</span>
+            <span>{t.setup || '—'}</span>
+            <span>{fR(rMultiple(t))}</span>
+            <span className={pnlClass(t.pnl)}>
+              {t.approx ? '≈' : ''}
+              {fmtUsd(t.pnl)}
+            </span>
+          </div>
+        ))}
+      {trades.length === 0 && <div className="muted">no trades yet — tag a setup on the ticket before you enter</div>}
+    </div>
   );
 }
 
@@ -227,20 +276,51 @@ export function App() {
   // TP1 is the TP pts box; TP2/TP3 and the split turn it into partial targets.
   // ATR mode: stop = ATR of the 60 s candles × your multiple; targets = your R multiples of it. A
   // stop dragged on the preview overrides it until "snap back".
+  // Swing mode: a long's stop under the low of the last N minutes, a short's over the high, so the
+  // distance differs by side and by entry price; everything below asks per side (slFor / brFor).
   const atrMode = s.stopMode === 'atr';
+  const swingMode = s.stopMode === 'swing';
+  const rMode = atrMode || swingMode;
   const atrT = m.trend.t1.atrTicks();
   const [slOverride, setSlOverride] = useState<number | null>(null);
-  const slEff = atrMode ? (slOverride ?? (atrT !== undefined && atrT > 0 ? Math.max(1, Math.round(atrT * s.atrMult)) : 0)) : s.slTicks;
-  const tpEff = atrMode ? [0, 1, 2].map((i) => ((s.tpR[i] ?? 0) > 0 && slEff > 0 ? Math.max(1, Math.round(slEff * (s.tpR[i] ?? 0))) : 0)) : [s.tpTicks, s.tp2Ticks, s.tp3Ticks];
+  const atrSl = atrT !== undefined && atrT > 0 ? Math.max(1, Math.round(atrT * s.atrMult)) : 0;
+  const book0 = m.book;
+  const ask0 = book0 ? bestAsk(book0) : undefined;
+  const bid0 = book0 ? bestBid(book0) : undefined;
+  const swingRange = swingMode ? m.bars.range(s.swingMins, Date.now()) : undefined;
+  /** Stop distance in ticks for a long or short entered at `ref` (default: the ask / the bid). */
+  const slFor = (long: boolean, ref?: number): number => {
+    if (rMode && slOverride !== null) return slOverride;
+    if (atrMode) return atrSl;
+    if (swingMode) {
+      const r = ref ?? (long ? ask0 : bid0);
+      const d = r === undefined ? 0 : (swingStopTicks(long, r, swingRange, s.swingBufTicks) ?? 0);
+      return d > 0 ? Math.max(d, s.swingMinTicks) : 0;
+    }
+    return s.slTicks;
+  };
   const split = parseSplit(s.tpSplit);
-  const targets: Target[] = tpEff.map((ticks, i) => ({ ticks, pct: split[i] ?? 0 }));
+  const tpsFor = (sl: number) => (rMode ? [0, 1, 2].map((i) => ((s.tpR[i] ?? 0) > 0 && sl > 0 ? Math.max(1, Math.round(sl * (s.tpR[i] ?? 0))) : 0)) : [s.tpTicks, s.tp2Ticks, s.tp3Ticks]);
+  const brFor = (long: boolean, ref?: number): BracketCtx => {
+    const sl = slFor(long, ref);
+    const tps = tpsFor(sl);
+    const tg: Target[] = tps.map((ticks, i) => ({ ticks, pct: split[i] ?? 0 }));
+    return { bracketsOn: s.bracketsOn, tpTicks: tps[0]!, slTicks: sl, targets: tg, beAfterTp1: tg.filter((t) => t.ticks > 0).length >= 2 && s.beAfterTp1, beOffset: s.beOffset, trailStartR: s.trailLine ? 0 : s.trailStartR, trailLine: s.trailLine || undefined };
+  };
+  /** The paper broker's copy of a bracket (fixed on the order when you click). */
+  const paperBr = (b: BracketCtx): BracketSettings => ({ enabled: b.bracketsOn, tpTicks: b.tpTicks, slTicks: b.slTicks, targets: b.targets, beAfterTp1: b.beAfterTp1, beOffset: b.beOffset, trailStartR: b.trailStartR, trailLine: b.trailLine });
+  // What the ticket shows: the preview side, else the long side.
+  const viewLong = s.preview !== 'short';
+  const br = brFor(viewLong);
+  const slEff = br.slTicks;
+  const targets = br.targets!;
+  const tpEff = targets.map((t) => t.ticks);
   const multiTp = targets.filter((t) => t.ticks > 0).length >= 2;
-  const br: BracketCtx = { bracketsOn: s.bracketsOn, tpTicks: tpEff[0]!, slTicks: slEff, targets, beAfterTp1: multiTp && s.beAfterTp1, beOffset: s.beOffset, trailStartR: s.trailLine ? 0 : s.trailStartR, trailLine: s.trailLine || undefined };
   const brKey = JSON.stringify(br);
   const broker = m.broker;
   useEffect(() => {
-    const b = JSON.parse(brKey) as BracketCtx;
-    if (broker) broker.bracket = { enabled: b.bracketsOn, tpTicks: b.tpTicks, slTicks: b.slTicks, targets: b.targets, beAfterTp1: b.beAfterTp1, beOffset: b.beOffset, trailStartR: b.trailStartR, trailLine: b.trailLine };
+    if (broker) broker.bracket = paperBr(JSON.parse(brKey) as BracketCtx);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [broker, brKey]);
 
   useEffect(() => {
@@ -479,6 +559,8 @@ export function App() {
         : refPx
           ? unitsForRiskWithFees(s.sizeInput, slEff, tick, refPx, feeRate, sizeDec)
           : 0;
+  /** Size for a long or short entered at `ref`: in $ risk sizing it follows that side's stop. */
+  const unitsFor = (long: boolean, ref?: number) => (s.sizeMode !== 'risk' ? units : refPx ? unitsForRiskWithFees(s.sizeInput, slFor(long, ref), tick, refPx, feeRate, sizeDec) : 0);
   const lpos = live && m.info ? L.positionFor(m.info.symbol) : undefined;
   const liveOpen = lpos ? liveOpenPnl(lpos, tick, bid, ask) : 0;
   const equity = live ? (L.balance ?? 0) + liveOpen : m.equity();
@@ -523,47 +605,56 @@ export function App() {
 
   const place = (side: Side, t: number, stop: boolean) => {
     if (dayBlocked()) return;
+    const long = side === 'buy';
+    const u = unitsFor(long, t);
+    const b = brFor(long, t);
     if (live) {
       const c = m.marketCtx();
       // Vest has no stop entry type: the panel holds the stop and fires a MARKET entry (stops.ts).
       if (stop) {
-        if (c) act(countEntry(L.armStop(side, t, units, c, br)));
+        if (c) act(countEntry(L.armStop(side, t, u, c, b, s.stopConfirm)));
         return;
       }
       if (s.scaleOn) {
-        if (c) actAsync(L.enterScale(side, units, t, scaleEnd(side, t), s.scaleCount, s.scaleSkew, s.scaleDir, c).then(countEntry));
+        if (c) actAsync(L.enterScale(side, u, t, scaleEnd(side, t), s.scaleCount, s.scaleSkew, s.scaleDir, c).then(countEntry));
         return;
       }
-      if (c) actAsync(L.enterLimit(side, units, t, c, br).then(countEntry));
+      if (c) actAsync(L.enterLimit(side, u, t, c, b).then(countEntry));
       return;
     }
     if (!broker) return;
     if (!stop && s.scaleOn) {
       const end = scaleEnd(side, t);
-      const plan = scaleOrders(units, sizeDec, t, end, s.scaleCount, s.scaleSkew, s.scaleDir);
+      const plan = scaleOrders(u, sizeDec, t, end, s.scaleCount, s.scaleSkew, s.scaleDir);
       if (!plan.ok) return act({ ok: false, message: plan.message });
+      // Like Vest's scale: no TP/SL legs.
+      const noLegs = { ...paperBr(b), enabled: false };
       act(countEntry(
-        m.guarded(side, units, Math.max(t, end) * tick, () => {
-          const bad = plan.legs.map((l) => broker.limitOrder(side, l.qty, l.ticks)).filter((r) => !r.ok);
-          return bad.length ? { ok: false, message: bad.map((r) => r.message).join('; ') } : { ok: true, message: `SCALE ${side.toUpperCase()} ${units} in ${plan.legs.length} limits ${px(t)} → ${px(end)}` };
+        m.guarded(side, u, Math.max(t, end) * tick, () => {
+          const bad = plan.legs.map((l) => broker.limitOrder(side, l.qty, l.ticks, Date.now(), noLegs)).filter((r) => !r.ok);
+          return bad.length ? { ok: false, message: bad.map((r) => r.message).join('; ') } : { ok: true, message: `SCALE ${side.toUpperCase()} ${u} in ${plan.legs.length} limits ${px(t)} → ${px(end)}` };
         }),
       ));
       return;
     }
-    act(countEntry(m.guarded(side, units, t * tick, () => (stop ? broker.stopOrder(side, units, t) : broker.limitOrder(side, units, t)))));
+    const pb = paperBr(b);
+    act(countEntry(m.guarded(side, u, t * tick, () => (stop ? broker.stopOrder(side, u, t, Date.now(), pb, s.stopConfirm === 'close') : broker.limitOrder(side, u, t, Date.now(), pb)))));
   };
   /** A scale runs from the clicked price AWAY from the market: down for buys, up for sells. */
   const scaleEnd = (side: Side, t: number) => t + (side === 'buy' ? -1 : 1) * s.scaleSpanTicks;
   const market = (side: Side) => {
     if (dayBlocked()) return;
+    const long = side === 'buy';
+    const u = unitsFor(long);
+    const b = brFor(long);
     if (live) {
       const c = m.marketCtx();
-      if (c) actAsync(L.enter(side, units, c, br).then(countEntry));
+      if (c) actAsync(L.enter(side, u, c, b).then(countEntry));
       return;
     }
     if (!broker) return;
     const p = side === 'buy' ? ask : bid;
-    act(countEntry(m.guarded(side, units, p === undefined ? undefined : p * tick, () => broker.marketOrder(side, units))));
+    act(countEntry(m.guarded(side, u, p === undefined ? undefined : p * tick, () => broker.marketOrder(side, u, Date.now(), paperBr(b)))));
   };
   const reverse = () => {
     if (live) return paperOnly('REVERSE');
@@ -615,6 +706,81 @@ export function App() {
     if (r.ok) saveDay({ trades: daySt.trades + 1 });
     return r;
   };
+
+  // ── Trade journal: every round trip on the market on screen, with its setup, risk and result ──
+  const [journal, setJournal] = useState<JournalTrade[]>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('bdiqvest.journal.v1') ?? '[]') as JournalTrade[];
+    } catch {
+      return [];
+    }
+  });
+  const saveJournal = (j: JournalTrade[]) => {
+    setJournal(j);
+    try {
+      localStorage.setItem('bdiqvest.journal.v1', JSON.stringify(j.slice(-500)));
+    } catch {
+      /* storage unavailable: the journal lasts while this window is open */
+    }
+  };
+  const openTrade = useRef<null | {
+    open: number;
+    sym: string;
+    side: 'long' | 'short';
+    qty: number;
+    entry: number;
+    stop?: number;
+    riskUsd?: number;
+    setup: string;
+    mode: 'paper' | 'live';
+    stopMode: string;
+    realized0: number;
+    lastPnl: number;
+    lastPx?: number;
+  }>(null);
+  useEffect(() => {
+    const sym = m.info?.displaySymbol ?? m.info?.symbol ?? '';
+    const o = openTrade.current;
+    const side: 'long' | 'short' = pos.qty > 0 ? 'long' : 'short';
+    const closeIt = (cur: NonNullable<typeof o>) => {
+      const paperPnl = broker ? broker.realizedUsd - broker.feesUsd - cur.realized0 : 0;
+      saveJournal([
+        ...journal,
+        { open: cur.open, close: Date.now(), sym: cur.sym, side: cur.side, qty: cur.qty, entry: cur.entry, exit: cur.lastPx, stop: cur.stop, riskUsd: cur.riskUsd, pnl: cur.mode === 'live' ? cur.lastPnl : paperPnl, approx: cur.mode === 'live', setup: cur.setup, mode: cur.mode, stopMode: cur.stopMode },
+      ]);
+    };
+    if (pos.qty !== 0) {
+      if (!o || o.sym !== sym || o.side !== side) {
+        if (o && o.sym === sym) closeIt(o); // reversed
+        const lastFee = broker?.fills.at(-1)?.feeUsd ?? 0;
+        openTrade.current = {
+          open: Date.now(),
+          sym,
+          side,
+          qty: Math.abs(pos.qty),
+          entry: pos.avgTicks * tick,
+          setup: s.setup,
+          mode: live ? 'live' : 'paper',
+          stopMode: s.stopMode,
+          realized0: broker ? broker.realizedUsd - broker.feesUsd + lastFee : 0,
+          lastPnl: openPnl,
+        };
+      }
+      const cur = openTrade.current!;
+      cur.qty = Math.max(cur.qty, Math.abs(pos.qty));
+      cur.lastPnl = openPnl;
+      const exitPx = pos.qty > 0 ? bid : ask;
+      if (exitPx !== undefined) cur.lastPx = exitPx * tick;
+      const sl = orders.find((x) => x.leg === 'sl')?.priceTicks;
+      if (cur.stop === undefined && sl !== undefined) {
+        cur.stop = sl * tick;
+        cur.riskUsd = Math.abs(cur.entry - cur.stop) * cur.qty;
+      }
+    } else if (o) {
+      if (o.sym === sym) closeIt(o);
+      openTrade.current = null;
+    }
+  });
   // A losing close starts the cooldown (open P&L just before the position went flat).
   const lastOpen = useRef({ qty: 0, pnl: 0, sym: '' });
   useEffect(() => {
@@ -677,6 +843,11 @@ export function App() {
   }, [L, m, live, hasLivePos, m.info?.symbol, s.trailStartR, s.trailLine]);
 
   /** Close half: an exit, never gated. */
+  // Dev server only (never in the extension build): lets a test script drive the panel's own
+  // actions, e.g. a paper trading session. Gone from production by Vite's dead-code removal.
+  useEffect(() => {
+    if (import.meta.env.DEV) (window as unknown as Record<string, unknown>).__bdiq = { m, place, market, update, settings: s, live };
+  });
   const closeHalfNow = () => {
     const c = m.marketCtx();
     if (live) {
@@ -703,13 +874,13 @@ export function App() {
     const dist = (t - pvRef) * dir;
     if (id === -3000) {
       if (dist >= 0) return act({ ok: false, message: `the stop must be ${pvLong ? 'below' : 'above'} the entry` });
-      if (atrMode) setSlOverride(-dist);
+      if (rMode) setSlOverride(-dist);
       else update({ slTicks: -dist });
       return;
     }
     if (dist <= 0) return act({ ok: false, message: `a target must be ${pvLong ? 'above' : 'below'} the entry` });
     const i = -3001 - id;
-    if (atrMode) {
+    if (rMode) {
       const tpR = [...s.tpR];
       tpR[i] = slEff > 0 ? Math.round((dist / slEff) * 10) / 10 : 0;
       update({ tpR });
@@ -766,6 +937,17 @@ export function App() {
   const stDist = (st: typeof st1) => (st && stRef !== undefined ? (stRef - st.ticks) * tick : undefined);
   const TREND_LABEL = { strongLong: '▲▲ STRONG LONG', weakLong: '▲ WEAK LONG', chop: '◆ CHOP', weakShort: '▼ WEAK SHORT', strongShort: '▼▼ STRONG SHORT' } as const;
   const flipFresh = m.lastFlip !== null && Date.now() - m.lastFlip.at < 5000;
+  // CHOP vs TREND, and EXTENDED (don't chase). See structure.ts.
+  const mstate = marketState({
+    st1: tr.t1.dir,
+    st2: tr.t2.dir,
+    flips15: m.flips.filter((t) => t > Date.now() - 15 * 60_000).length,
+    price: m.lastTradeTicks,
+    vwap: m.vwap.value(),
+    vwapSigma: m.vwap.sigma(),
+    st1Line: tr.t1.lineTicks,
+    atrTicks: atrT,
+  });
   // Level lines drawn across ladder rows (like the ST lines): VWAP + σ bands, stacked-imbalance
   // zones, big prints. Keyed by row; each row can carry several.
   const vwapT = ind.vwapOn ? m.vwap.value() : undefined;
@@ -818,6 +1000,14 @@ export function App() {
     if (!s.trailLine && s.trailStartR > 0 && slEff > 0) brLines.push({ ticks: pvRef + dir * Math.round(s.trailStartR * slEff), cls: 'br-trail pv', label: `TRAIL starts (${s.trailStartR}R)` });
   }
   for (const l of brLines) addLine(l.ticks, l.cls, l.label);
+  // In CHOP, the edges to trade: the last 30 minutes' high and low.
+  if (mstate.state === 'chop') {
+    const rg = m.bars.range(30, Date.now());
+    if (rg && rg.hi > rg.lo) {
+      addLine(rg.hi, 'rng', 'RANGE H 30m — fade');
+      addLine(rg.lo, 'rng', 'RANGE L 30m — fade');
+    }
+  }
   const fitSpan = brLines.length && mid !== undefined ? Math.max(...brLines.map((l) => Math.abs(l.ticks - mid))) : 0;
   useEffect(() => {
     const half = nRows / 2 - 2;
@@ -830,6 +1020,11 @@ export function App() {
     ...orders.map((o) => ({ label: o.leg ? o.leg.toUpperCase() : o.type === 'stop' ? 'STP' : 'LMT', ticks: o.priceTicks })),
     ...pvChips.map((o) => ({ label: `${o.leg === 'sl' ? 'SL' : 'TP'} ◇ preview`, ticks: o.priceTicks })),
     ...(failRow !== undefined ? [{ label: 'FAIL', ticks: failRow }] : []),
+    ...(() => {
+      // In CHOP the range edges pin like other levels when they are off-screen.
+      const rg = mstate.state === 'chop' ? m.bars.range(30, Date.now()) : undefined;
+      return rg && rg.hi > rg.lo ? [{ label: 'RANGE H', ticks: rg.hi }, { label: 'RANGE L', ticks: rg.lo }] : [];
+    })(),
     ...(st1 ? [{ label: `ST1 ${st1.dir === 'up' ? 'support' : 'resistance'}`, ticks: st1.ticks }] : []),
     ...(vwapT !== undefined ? [{ label: 'VWAP', ticks: Math.round(vwapT) }] : []),
     ...orLevels.filter((l) => l.kind === 'high' || l.kind === 'low').map((l) => ({ label: orLabel(l), ticks: l.ticks })),
@@ -853,7 +1048,9 @@ export function App() {
           setCenter(bucketOf(p.ticks, g));
         }}
       >
-        {p.above ? '▲' : '▼'} {p.label} {formatPrice(p.ticks, tick)} · {(p.distance * tick).toFixed(dec)} pts off-screen{pnl !== undefined ? ` · ${fmtUsd(pnl)}` : ''}
+        {p.above ? '▲' : '▼'}
+        {p.label.replace(' resistance', '').replace(' support', '')} {formatPrice(p.ticks, tick)} <i>{(p.distance * tick).toFixed(dec)}</i>
+        {pnl !== undefined ? ` ${fmtUsd(pnl)}` : ''}
       </div>
     );
   };
@@ -956,6 +1153,12 @@ export function App() {
             ⚡ {L.stops.size} stop{L.stops.size > 1 ? 's' : ''} armed
           </span>
         )}
+        {s.showTrend && mstate.state !== 'warming' && (
+          <span className={`statebadge ${mstate.state} ${mstate.extended ? 'ext' : ''}`} title={mstate.why}>
+            {mstate.state === 'chop' ? 'CHOP — fade the edges' : mstate.state === 'trend-up' ? 'TREND ▲' : 'TREND ▼'}
+            {mstate.extended ? ` · EXTENDED ${mstate.extended === 'up' ? '↑' : '↓'} don't chase` : ''}
+          </span>
+        )}
         {limitsOn && (
           <span className={`daychip ${verdict.ok ? '' : 'locked'}`} title={verdict.ok ? 'Protect my day (settings)' : verdict.message}>
             day <b className={pnlClass(dayPnl)}>{fmtUsd(dayPnl)}</b>
@@ -969,7 +1172,7 @@ export function App() {
             className={`trendbadge ${tr.t1.lineTicks === undefined ? 'warm' : tr.state} ${flipFresh ? 'flip' : ''}`}
             title={`Dual SuperTrend (BookDepthIQ): ST1 60s×10 ×3.6, ST2 15s×10 ×3.0, flip on price + delta.${m.lastFlip ? ` Last flip: ST${m.lastFlip.line} ${m.lastFlip.dir === 'up' ? '▲' : '▼'} ${Math.round((Date.now() - m.lastFlip.at) / 1000)} s ago.` : ''}`}
           >
-            {tr.t1.lineTicks === undefined ? 'SuperTrend warming up…' : `${TREND_LABEL[tr.state]} ${tr.confidence > 0 ? '+' : ''}${tr.confidence}`}
+            {m.trendLoading ? 'SuperTrend loading 45 min…' : tr.t1.lineTicks === undefined ? 'SuperTrend warming up…' : `${TREND_LABEL[tr.state]} ${tr.confidence > 0 ? '+' : ''}${tr.confidence}`}
           </span>
         )}
         {!live && !L.tokenOk() && (
@@ -1532,7 +1735,10 @@ export function App() {
         <aside className="side">
           <div className="tape">
             <h4>
-              Vest tape
+              {s.showJournal ? 'Journal' : 'Vest tape'}
+              <button className={`mini ${s.showJournal ? 'on' : ''}`} title="trade journal: every trade with its setup, risk, result and R" onClick={() => update({ showJournal: !s.showJournal })}>
+                journal
+              </button>
               <button className="mini" title={s.showLog ? 'hide the log: tape only' : 'show the PAPER / LIVE request log under the tape'} onClick={() => update({ showLog: !s.showLog })}>
                 {s.showLog ? 'hide log' : 'log'}
               </button>
@@ -1545,7 +1751,8 @@ export function App() {
                 </button>
               )}
             </h4>
-            {m.tape.slice(0, s.showLog ? 40 : 120).map((r) => (
+            {s.showJournal && <JournalView trades={journal} onClear={() => saveJournal([])} />}
+            {!s.showJournal && m.tape.slice(0, s.showLog ? 40 : 120).map((r) => (
               <div key={r.id} className={`trow ${r.side} ${ind.bigOn && r.qty >= ind.bigMin ? (r.qty >= 3 * ind.bigMin ? 'big huge' : 'big') : ''}`}>
                 <span>{new Date(r.time).toLocaleTimeString([], { hour12: false })}</span>
                 <span>{formatPrice(r.priceTicks, tick)}</span>
@@ -1555,7 +1762,7 @@ export function App() {
                 </span>
               </div>
             ))}
-            {m.tape.length === 0 && <div className="muted">waiting for trades…</div>}
+            {!s.showJournal && m.tape.length === 0 && <div className="muted">waiting for trades…</div>}
           </div>
           {s.showLog && <div className="log">
             {live || L.log.length > 0 ? (
@@ -1621,7 +1828,7 @@ export function App() {
               ${v}
             </button>
           ))}
-          {atrMode ? (
+          {rMode ? (
             <label className={s.bracketsOn ? '' : 'dim'} title="TP1 as a multiple of the stop distance (R)">
               TP1 R
               <input type="number" min={0} step={0.5} value={s.tpR[0] ?? 0} onChange={(e) => update({ tpR: [Math.max(0, Number(e.target.value) || 0), s.tpR[1] ?? 0, s.tpR[2] ?? 0] })} />
@@ -1645,6 +1852,23 @@ export function App() {
                 </button>
               )}
             </label>
+          ) : swingMode ? (
+            <label className={s.bracketsOn ? '' : 'dim'} title="swing stop: a long's goes under the LOW of the last N minutes, a short's over the HIGH, plus the buffer. The size follows in $ risk sizing.">
+              SL swing
+              <input type="number" min={1} step={1} value={s.swingMins} onChange={(e) => update({ swingMins: Math.max(1, Math.round(Number(e.target.value) || 1)) })} />
+              min +
+              <PointsInput ticks={s.swingBufTicks} tick={tick} onTicks={(t) => update({ swingBufTicks: t })} />
+              <span title="the stop is never closer than this (0 = no floor): an entry at the swing high/low would otherwise get a stop inside the noise">≥</span>
+              <PointsInput ticks={s.swingMinTicks} tick={tick} onTicks={(t) => update({ swingMinTicks: t })} />
+              <small className="neg">
+                {slFor(true) || slFor(false) ? `L ${(slFor(true) * tick).toFixed(dec)} / S ${(slFor(false) * tick).toFixed(dec)} pts${slOverride !== null ? ' (dragged)' : ''}` : 'no range yet'}
+              </small>
+              {slOverride !== null && (
+                <button className="mini" onClick={() => setSlOverride(null)} title="back to the swing">
+                  snap back
+                </button>
+              )}
+            </label>
           ) : (
             <label className={s.bracketsOn ? '' : 'dim'}>
               SL pts
@@ -1653,14 +1877,14 @@ export function App() {
             </label>
           )}
           <button
-            className={`toggle ${atrMode ? 'on' : ''}`}
-            title="stop distance from your points, or from ATR × multiple (targets then in R)"
+            className={`toggle ${rMode ? 'on' : ''}`}
+            title="stop distance: your points, ATR × multiple, or beyond the swing high/low (targets in R for ATR and swing)"
             onClick={() => {
               setSlOverride(null);
-              update({ stopMode: atrMode ? 'pts' : 'atr' });
+              update({ stopMode: s.stopMode === 'pts' ? 'atr' : s.stopMode === 'atr' ? 'swing' : 'pts' });
             }}
           >
-            STOP {atrMode ? 'ATR' : 'PTS'}
+            STOP {s.stopMode === 'atr' ? 'ATR' : s.stopMode === 'swing' ? 'SWING' : 'PTS'}
           </button>
           <label>
             B/E + pts
@@ -1679,7 +1903,7 @@ export function App() {
         </div>
         <div className="fields more">
           {[1, 2].map((i) =>
-            atrMode ? (
+            rMode ? (
               <label key={i} className={s.bracketsOn ? '' : 'dim'} title={`TP${i + 1} in R (0 = off)`}>
                 TP{i + 1} R
                 <input
@@ -1741,6 +1965,23 @@ export function App() {
             </>
           )}
           <button
+            className={`toggle ${s.stopConfirm === 'close' ? 'on' : ''}`}
+            title="stop entries (shift-click): fire on the first trade at/through the price (TOUCH), or only on a 1-minute CLOSE at/through it, so a wick doesn't fill you"
+            onClick={() => update({ stopConfirm: s.stopConfirm === 'close' ? 'touch' : 'close' })}
+          >
+            STP {s.stopConfirm === 'close' ? '1m CLOSE' : 'TOUCH'}
+          </button>
+          <label title="setup tag saved with the trade in the journal">
+            setup
+            <select value={s.setup} onChange={(e) => update({ setup: e.target.value })}>
+              {['', 'edge fade', 'breakout', 'pullback', 'trend', 'other'].map((v) => (
+                <option key={v} value={v}>
+                  {v || '—'}
+                </option>
+              ))}
+            </select>
+          </label>
+          <button
             className={`toggle ${s.preview !== 'off' ? 'on' : ''}`}
             title="show the would-be stop and targets on the ladder before you enter (nothing is sent); drag the stop to change it"
             onClick={() => update({ preview: s.preview === 'off' ? 'long' : s.preview === 'long' ? 'short' : 'off' })}
@@ -1773,6 +2014,11 @@ export function App() {
           <span>
             = <b>{units.toFixed(sizeDec)}u</b> <small>{eq(units)}</small>
           </span>
+          {swingMode && s.sizeMode === 'risk' && (
+            <span title="swing stops differ by side, so the size does too">
+              L <b>{unitsFor(true).toFixed(sizeDec)}u</b> / S <b>{unitsFor(false).toFixed(sizeDec)}u</b>
+            </span>
+          )}
           <span>{refPx ? `${fmtK(units * refPx)} notional` : ''}</span>
           {refPx && units > 0 && (
             <span title="leverage after this entry, counting what is already open">

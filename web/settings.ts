@@ -54,7 +54,18 @@ export interface Settings {
   riskPresets: number[];
   /** Stop distance: your points, or ATR of the panel's 60 s candles × atrMult. In ATR mode the
    * targets are R multiples of that stop (0 = off). */
-  stopMode: 'pts' | 'atr';
+  stopMode: 'pts' | 'atr' | 'swing';
+  /** Swing stop: beyond the high/low of the last `swingMins` minutes, plus `swingBufTicks`. */
+  swingMins: number;
+  swingBufTicks: number;
+  /** Swing stop never closer than this (ticks; 0 = no floor). */
+  swingMinTicks: number;
+  /** Stop entries fire on a trade at/through the price ('touch') or on a 1-min close ('close'). */
+  stopConfirm: 'touch' | 'close';
+  /** Setup tag recorded with each trade in the journal. */
+  setup: string;
+  /** Side panel shows the trade journal instead of the tape. */
+  showJournal: boolean;
   atrMult: number;
   tpR: number[];
   /** Show the would-be bracket on the ladder before entry (drag the stop to change it). */
@@ -113,6 +124,12 @@ export const DEFAULTS: Settings = {
   scaleDir: 'even',
   riskPresets: [25, 50, 100, 200],
   stopMode: 'pts',
+  swingMins: 15,
+  swingBufTicks: 4,
+  swingMinTicks: 0,
+  stopConfirm: 'touch',
+  setup: '',
+  showJournal: false,
   atrMult: 1.5,
   tpR: [1, 2, 0],
   preview: 'off',

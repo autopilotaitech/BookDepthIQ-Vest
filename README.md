@@ -92,7 +92,7 @@ Every LIVE launch starts in PAPER again. LIVE is never remembered.
 | **BUY MKT / SELL MKT** buttons | market fill | market order, with TP/SL legs if BRACKET is on |
 | Click the **BUY** / **SELL** column at a price | limit order | **limit order** (GTC) with TP/SL legs at your points from that price |
 | Click with **SCALE ON** | 2–10 limits | **scale order** like Vest's own: the first limit opens, the rest are added to the same position (no TP/SL) |
-| **Shift+click** the BUY / SELL column | stop order | **panel-held stop**: a buy stop above the ask or sell stop below the bid. When a trade prints at or through it, the panel sends a **market** entry with your TP/SL (dashed STP chip; click to cancel, drag to move) |
+| **Shift+click** the BUY / SELL column | stop order | **panel-held stop**: a buy stop above the ask or sell stop below the bid. When a trade prints at or through it (or, with **STP 1m CLOSE**, when a one-minute bar closes at or through it), the panel sends a **market** entry with your TP/SL (dashed STP chip; click to cancel, drag to move) |
 | Click an **LMT** chip | cancel | cancel on Vest |
 | Drag an **LMT** chip to another row | move | move on Vest (cancel, then re-place the unfilled size at the new price; TP/SL shift with it) |
 | Drag a **TP** / **SL** chip | move the leg | move the leg on Vest (each partial target on its own) |
@@ -191,9 +191,14 @@ and delta count from when the panel opens.
 
 - **Risk buttons** ($25 / $50 / $100 / $200, editable in settings) size the trade so a stop-out
   costs that much, **taker fees both ways included**. $ risk sizing always counts the fees.
-- **STOP PTS / ATR**: in ATR mode the stop is the ATR of the 60 s candles (the ST1 engine) × your
-  multiple, and the targets are R multiples of it, so a wilder market gets a wider stop and a smaller
-  size for the same $ risk.
+- **STOP PTS / ATR / SWING**: in ATR mode the stop is the ATR of the 60 s candles (the ST1 engine)
+  × your multiple. In SWING mode a long's stop goes under the low of the last N minutes and a
+  short's over the high, plus your buffer, so it sits beyond the structure; the ticket shows both
+  sides (**L x / S y pts**) and, in $ risk sizing, both sizes. In both modes the targets are R
+  multiples of the stop and the size follows it, so the $ risk stays the same.
+- **STP TOUCH / 1m CLOSE**: stop entries (shift-click) fire on the first trade through the price, or
+  only once a one-minute bar closes through it, so a wick doesn't fill you on a false break.
+- **setup** tags the next trade (edge fade, breakout, pullback, trend…) for the journal.
 - **PREVIEW LONG / SHORT** shows the stop and targets (◇, dashed) on the ladder before you enter,
   with their $. Nothing is sent. Drag the ◇ stop to change it: in $ risk sizing the size follows, so
   the risk stays the same. In ATR mode **snap back** returns to ATR × multiple.
@@ -229,6 +234,16 @@ floor** bar under the account row shows how much of the drawdown allowance is le
   at all (unless price nears the edge), so the row you aim at stays put.
 - Wheel over the PRICE column changes the price grouping: 1, 2, 4, 8, 20, 40 or 100 ticks per row.
 
+**Market state** (header, next to the SuperTrend badge): **TREND ▲ / ▼** when ST1 and ST2 agree
+and haven't been flipping; **CHOP — fade the edges** when they disagree or have flipped 3+ times in
+15 min, with the last 30 minutes' **RANGE H / RANGE L** drawn on the ladder; **EXTENDED, don't
+chase** when price is 2σ+ from VWAP or 3+ ATR from ST1. It describes the market; it doesn't call
+trades.
+
+**Journal** (button in the tape header): every round trip on the market on screen, with the setup
+tag, size, entry, stop, $ result and R, totals and results per setup, and **copy CSV**. PAPER
+results are exact (fees in); LIVE ones are the last marked P&L (≈). Kept in this browser.
+
 **The result bar.** Every LIVE action shows its result right under the LIVE banner: green ✓ when
 Vest accepted it, red ✗ with the reason when it was refused. The full request/response log is in
 the **LIVE LOG** pane. Its **copy** button copies it with your login already blanked out.
@@ -237,6 +252,7 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
 
 | Version | What changed |
 |---|---|
+| 1.7.0 | **SWING** stop, **STP 1m CLOSE** stop entries, market state (**TREND / CHOP / EXTENDED**) with range lines, trade **journal** with setup tags. Off-screen labels take one line instead of crowding out the ladder. PAPER keeps the stop and targets from the click (an ATR or swing stop no longer changes at the fill). |
 | 1.6.5 | The trail menu applies to the position you're already in, not only the next entry. |
 | 1.6.4 | Calm ladder: re-centres only when price drifts a sixth of the screen, and holds still under your mouse. |
 | 1.6.3 | Trailing stop on SuperTrend: **on ST1** or **on ST2**. |

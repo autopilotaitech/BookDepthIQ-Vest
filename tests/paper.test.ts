@@ -308,3 +308,30 @@ describe('trail turned on mid-trade (paper)', () => {
     expect(b.orders.find((o) => o.leg === 'sl')!.priceTicks).toBe(99);
   });
 });
+
+describe('v1.7 paper: bracket fixed at the click, 1-min close stops', () => {
+  it('a limit fills with the bracket it was placed with, not the one in force at the fill', () => {
+    const b = new PaperBroker(CFG);
+    b.bracket = { enabled: true, tpTicks: 0, slTicks: 4 };
+    b.onBook(book(100, 102));
+    b.limitOrder('buy', 1, 99, Date.now(), { enabled: true, tpTicks: 0, slTicks: 8 });
+    b.bracket = { enabled: true, tpTicks: 0, slTicks: 20 }; // the ATR moved before the fill
+    b.onBook(book(97, 99));
+    expect(b.position.qty).toBe(1);
+    expect(b.orders.find((o) => o.leg === 'sl')!.priceTicks).toBe(91); // 99 - 8
+  });
+  it('a 1-min close buy stop ignores the wick and fires on the close', () => {
+    const b = new PaperBroker(CFG);
+    b.onBook(book(100, 102));
+    b.stopOrder('buy', 1, 110, Date.now(), { enabled: false, tpTicks: 0, slTicks: 0 }, true);
+    b.onBook(book(111, 112)); // through on the book: a touch stop would fill here
+    expect(b.position.qty).toBe(0);
+    b.onTradePrint(111, T(0));
+    b.onTradePrint(111, T(50));
+    b.onTradePrint(112, T(61)); // previous minute closed 111 ≥ 110
+    expect(b.position.qty).toBe(1);
+  });
+});
+function T(sec: number) {
+  return Date.UTC(2026, 9, 12, 14, 0) + sec * 1000;
+}

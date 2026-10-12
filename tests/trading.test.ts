@@ -858,3 +858,24 @@ describe('LIVE trail set mid-trade', () => {
     expect(s.trail.size).toBe(0);
   });
 });
+
+describe('LIVE close-confirmed stop entry', () => {
+  it('arms with confirm=close and fires one market entry on the close, not the wick', async () => {
+    const x = await liveSession(vest());
+    const { s, calls } = x;
+    x.advance(60_000 - (1_791_000_000_000 % 60_000) + 1000); // 1 s into a fresh minute
+    expect(s.armStop('buy', 125820, 0.001, MKT, { bracketsOn: false, tpTicks: 0, slTicks: 0 }, 'close').message).toMatch(/1-min CLOSE/);
+    await s.onMarketTrade(125822, MKT); // wick through
+    x.advance(20_000);
+    await s.onMarketTrade(125810, MKT); // back under: this minute closes at 125810
+    x.advance(45_000);
+    await s.onMarketTrade(125822, MKT); // new minute: previous close 125810 < stop → nothing
+    expect(writes(calls)).toHaveLength(0);
+    x.advance(60_000);
+    await s.poll(); // positions read (every 1.5 s in real use), so the entry check passes
+    await s.onMarketTrade(125823, { ...MKT, bid: 125822, ask: 125824 }); // previous minute closed 125822 ≥ stop → fire
+    const w = writes(calls);
+    expect(w).toHaveLength(1);
+    expect(w[0]!.body).toMatchObject({ orderType: 'market', side: 'long' });
+  });
+});

@@ -11,7 +11,8 @@ here, and do not add Vest code to BookDepthIQ. Read `docs/DESIGN.md` before chan
    account per person. **One exception, approved by the owner on 2026-10-09:** panel-held stop
    entries (`src/live/stops.ts`). The user arms a buy/sell stop at their own price, size and
    brackets; on a trade at or through it the panel sends ONE market entry through the normal entry
-   checks. They disarm on PAPER, instrument switch, lost market data or an expired login.
+   checks. Since 2026-10-12 (owner's OK) the user may instead arm it to fire only on a one-minute
+   CLOSE at or through the price (`confirm: 'close'`); same one entry, same checks. They disarm on PAPER, instrument switch, lost market data or an expired login.
    **Second exception, approved by the owner on 2026-10-11:** B/E after TP1 (`src/live/targets.ts`).
    Ticked by the user on an entry with 2+ targets; when TP1 fills the panel sends ONE stop move to
    entry ± the user's B/E offset. Same disarm rules as the stops.

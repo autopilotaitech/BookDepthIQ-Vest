@@ -27,6 +27,11 @@ export interface WorkingOrder {
   reduceOnly: boolean;
   /** 'tp' | 'sl' for bracket legs; undefined for user orders. */
   leg?: 'tp' | 'sl';
+  /** Entry orders: the bracket as it was when you clicked (so a fill later uses the same stop the
+   * size was worked out from). */
+  bracket?: BracketSettings;
+  /** Stop entries: fire only on a one-minute close at/through the price. */
+  confirmClose?: boolean;
 }
 
 export interface Fill {
@@ -88,6 +93,8 @@ export class PaperBroker {
   private book: Book | null = null;
   /** B/E after TP1 already done for the current position. */
   private beDone = false;
+  private printMinute: number | undefined;
+  private printLast: number | undefined;
   /** Trailing stop for the current position: risk in ticks at entry, best exit price since. */
   private trailRisk = 0;
   private trailBest: number | undefined;
@@ -112,26 +119,26 @@ export class PaperBroker {
 
   // ───────────── user actions ─────────────
 
-  marketOrder(side: Side, qty: number, now = Date.now()): Result {
+  marketOrder(side: Side, qty: number, now = Date.now(), bracket?: BracketSettings): Result {
     const q = this.roundQty(qty);
     if (q <= 0) return refuse('quantity must be > 0');
     if (!this.hasBook) return refuse('no book yet');
     const before = this.position.qty;
     const f = this.executeMarket(side, q, null, now, 'market');
     if (!f) return refuse('book too thin to fill');
-    this.afterEntryFill(before);
+    this.afterEntryFill(before, bracket);
     return ok(`${side.toUpperCase()} ${q} @ ${this.px(f.priceTicks)}`);
   }
 
-  limitOrder(side: Side, qty: number, priceTicks: number, now = Date.now()): Result {
+  limitOrder(side: Side, qty: number, priceTicks: number, now = Date.now(), bracket?: BracketSettings): Result {
     const q = this.roundQty(qty);
     if (q <= 0) return refuse('quantity must be > 0');
-    this.orders.push({ id: this.nextOrderId++, side, type: 'limit', priceTicks, qty: q, reduceOnly: false });
+    this.orders.push({ id: this.nextOrderId++, side, type: 'limit', priceTicks, qty: q, reduceOnly: false, bracket });
     this.match(now);
     return ok(`${side.toUpperCase()} LMT ${q} @ ${this.px(priceTicks)}`);
   }
 
-  stopOrder(side: Side, qty: number, priceTicks: number, now = Date.now()): Result {
+  stopOrder(side: Side, qty: number, priceTicks: number, now = Date.now(), bracket?: BracketSettings, confirmClose = false): Result {
     const q = this.roundQty(qty);
     if (q <= 0) return refuse('quantity must be > 0');
     if (!this.hasBook) return refuse('no book yet');
@@ -140,9 +147,27 @@ export class PaperBroker {
     const ask = bestAsk(this.book!)!;
     if (side === 'buy' && priceTicks <= ask) return refuse('buy stop must be above the ask');
     if (side === 'sell' && priceTicks >= bid) return refuse('sell stop must be below the bid');
-    this.orders.push({ id: this.nextOrderId++, side, type: 'stop', priceTicks, qty: q, reduceOnly: false });
+    this.orders.push({ id: this.nextOrderId++, side, type: 'stop', priceTicks, qty: q, reduceOnly: false, bracket, confirmClose });
     this.match(now);
-    return ok(`${side.toUpperCase()} STP ${q} @ ${this.px(priceTicks)}`);
+    return ok(`${side.toUpperCase()} STP ${q} @ ${this.px(priceTicks)}${confirmClose ? ' (fires on a 1-min close)' : ''}`);
+  }
+
+  /**
+   * A trade printed on this market. Stop entries that wait for a one-minute close fire on the first
+   * trade of a new minute when the previous minute closed at/through them.
+   */
+  onTradePrint(priceTicks: number, timeMs: number): void {
+    const minute = Math.floor(timeMs / 60_000);
+    const closed = this.printMinute !== undefined && minute > this.printMinute ? this.printLast : undefined;
+    this.printMinute = minute;
+    this.printLast = priceTicks;
+    if (closed === undefined || !this.hasBook) return;
+    const due = this.orders.filter((o) => o.confirmClose && (o.side === 'buy' ? closed >= o.priceTicks : closed <= o.priceTicks));
+    for (const o of due) {
+      this.orders = this.orders.filter((x) => x !== o);
+      const before = this.position.qty;
+      if (this.executeMarket(o.side, o.qty, o.id, timeMs, 'stop (1-min close)')) this.afterEntryFill(before, o.bracket);
+    }
   }
 
   cancel(orderId: number): Result {
@@ -281,7 +306,9 @@ export class PaperBroker {
       const bid = bestBid(this.book!)!;
       const ask = bestAsk(this.book!)!;
       const due = this.orders.find((o) =>
-        o.type === 'limit'
+        o.confirmClose
+          ? false
+          : o.type === 'limit'
           ? o.side === 'buy'
             ? ask <= o.priceTicks
             : bid >= o.priceTicks
@@ -303,7 +330,7 @@ export class PaperBroker {
       if (due.type === 'limit') this.applyFill(due.side, qty, due.priceTicks, due.id, 'maker', now, due.leg ?? 'limit');
       else this.executeMarket(due.side, qty, due.id, now, due.leg ?? 'stop');
       if (due.leg) this.onBracketLegFilled(due.leg);
-      else this.afterEntryFill(before);
+      else this.afterEntryFill(before, due.bracket);
     }
   }
 
@@ -372,29 +399,31 @@ export class PaperBroker {
     return f;
   }
 
-  /** An entry changed the position: re-arm brackets for the whole position at the new average. */
-  private afterEntryFill(before: number): void {
+  /** An entry changed the position: re-arm brackets for the whole position at the new average,
+   * from the bracket the entry was placed with (else the current one). */
+  private afterEntryFill(before: number, placed?: BracketSettings): void {
     if (this.position.qty === before) return;
+    const br = placed ?? this.bracket;
     this.dropProtectiveLegs();
     this.beDone = false;
     this.trailRisk = 0;
     this.trailBest = undefined;
-    if (this.position.qty === 0 || !this.bracket.enabled) return;
-    if (((this.bracket.trailStartR ?? 0) > 0 || this.bracket.trailLine) && this.bracket.slTicks > 0) this.trailRisk = this.bracket.slTicks;
+    if (this.position.qty === 0 || !br.enabled) return;
+    if (br.slTicks > 0) this.trailRisk = br.slTicks;
     const long = this.position.qty > 0;
     const qty = Math.abs(this.position.qty);
     const avg = this.position.avgTicks;
     const exit: Side = long ? 'sell' : 'buy';
-    const on = (this.bracket.targets ?? []).filter((t) => t.ticks > 0);
+    const on = (br.targets ?? []).filter((t) => t.ticks > 0);
     const split = on.length >= 2 ? splitTargets(qty, this.cfg.sizeDecimals, on) : undefined;
     // An unsplittable size falls back to the one TP1 leg (the ticket shows why in red).
-    const tps = split?.ok ? split.legs : this.bracket.tpTicks > 0 ? [{ ticks: this.bracket.tpTicks, qty }] : [];
+    const tps = split?.ok ? split.legs : br.tpTicks > 0 ? [{ ticks: br.tpTicks, qty }] : [];
     for (const l of tps) {
       const tp = long ? Math.ceil(avg) + l.ticks : Math.floor(avg) - l.ticks;
       this.orders.push({ id: this.nextOrderId++, side: exit, type: 'limit', priceTicks: tp, qty: l.qty, reduceOnly: true, leg: 'tp' });
     }
-    if (this.bracket.slTicks > 0) {
-      const sl = long ? Math.floor(avg) - this.bracket.slTicks : Math.ceil(avg) + this.bracket.slTicks;
+    if (br.slTicks > 0) {
+      const sl = long ? Math.floor(avg) - br.slTicks : Math.ceil(avg) + br.slTicks;
       this.orders.push({ id: this.nextOrderId++, side: exit, type: 'stop', priceTicks: sl, qty, reduceOnly: true, leg: 'sl' });
     }
   }
