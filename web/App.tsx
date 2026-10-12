@@ -143,7 +143,7 @@ export function App() {
   const [drag, setDrag] = useState<{ id: number; from: number } | null>(null);
   // Rows per price: your zoom, widened when needed so the stop, targets and trail fit on screen.
   const [fitG, setFitG] = useState(1);
-  const g = Math.max(1, s.groupTicks, fitG);
+  const g = Math.max(1, s.groupTicks, s.fitBracket ? fitG : 1);
   const bk = (x: number | undefined) => (x === undefined ? undefined : bucketOf(x, g));
   // Hotkeys that OPEN risk (B/S/R/E) only work while armed; F (flatten) and Esc (cancel all) always do.
   const [armed, setArmed] = useState(false);
@@ -1359,7 +1359,16 @@ export function App() {
             <span className="liqhead bid" title="resting bid size as heat · WALL = 3× the average level">bid liq</span>
             <span title="wheel over the price column to group rows">
               {follow ? (
-                <>price{g > 1 ? ` ×${g} (${(g * tick).toFixed(dec)})` : ''}{fitG > s.groupTicks ? ' · fit to bracket' : ''}</>
+                <>
+                  price{g > 1 ? ` ×${g} (${(g * tick).toFixed(dec)})` : ''}{' '}
+                  <button
+                    className={`mini ${s.fitBracket ? 'on' : ''}`}
+                    title="FIT: widen the rows so the stop, targets and trail are all on screen. Rows get coarse, so a click places at the row's price — turn it off to place stops precisely."
+                    onClick={() => update({ fitBracket: !s.fitBracket })}
+                  >
+                    fit
+                  </button>
+                </>
               ) : (
                 <button className="follow-pill" onClick={resumeFollow} title="back to the market now (Space); resumes by itself 3 s after you stop scrolling">
                   ▶ FOLLOW
@@ -1763,7 +1772,8 @@ export function App() {
               SL {(slEff * tick).toFixed(dec)} ≤ spread {(spread * tick).toFixed(dec)} — stops out on entry
             </span>
           )}
-          {s.sizeMode === 'risk' && !slEff && <span className="neg">{atrMode ? 'ATR still warming up — no stop yet' : 'set SL points to size by risk'}</span>}
+          {atrMode && s.bracketsOn && !slEff && <span className="neg">ATR still warming up — entries go WITHOUT a stop</span>}
+          {s.sizeMode === 'risk' && !slEff && !atrMode && <span className="neg">set SL points to size by risk</span>}
           {s.bracketsOn && multiTp && units > 0 && (() => {
             const sp = splitTargets(units, sizeDec, targets);
             return sp.ok ? (

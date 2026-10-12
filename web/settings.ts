@@ -70,6 +70,9 @@ export interface Settings {
   cooldownSec: number;
   /** Close a position 5 min before Vest's weekend lock (not crypto: it has none). */
   weekendClose: boolean;
+  /** Widen the rows so the whole bracket is on screen. OFF by default: coarse rows move where a
+   * click places an order (v1.6.1 had it always on and stop clicks landed through the market). */
+  fitBracket: boolean;
 }
 
 const KEY = 'bdiqvest.settings.v3';
@@ -118,6 +121,7 @@ export const DEFAULTS: Settings = {
   maxTradesDay: 0,
   cooldownSec: 0,
   weekendClose: false,
+  fitBracket: false,
 };
 
 /** The old 0.01 default was a first-release cap the owner turned off (2026-10-08). */
