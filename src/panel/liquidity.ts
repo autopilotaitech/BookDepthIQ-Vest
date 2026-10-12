@@ -32,9 +32,15 @@ interface Flow {
 export class LiquidityTracker {
   /** Resting size per price at the latest book. */
   private cur = new Map<number, number>();
-  /** Size per price at the end of each finished bin, oldest first. */
+  /** Each finished 10 s bin: per price, the TIME-AVERAGED resting size over the bin, signed
+   * (+ bid, − offer), oldest first. Averaging is what makes the picture steady: Vest's book flickers
+   * several times a second, so a single snapshot per bin looked random. */
   private bins: Array<Map<number, number>> = [];
   private binStart: number | undefined;
+  /** The latest book, signed (+ bid, − offer), and size × ms credited so far to the open bin. */
+  private curSigned = new Map<number, number>();
+  private acc = new Map<number, number>();
+  private lastBookAt: number | undefined;
   /** Traded volume per price since the last book update. */
   private tradedSince = new Map<number, number>();
   /** Recent pull/stack/traded per price. */
@@ -87,16 +93,37 @@ export class LiquidityTracker {
       }
     }
     this.tradedSince.clear();
-    // Close every bin that ended before this book: each keeps the book as it stood at its end.
-    if (this.binStart === undefined) this.binStart = now;
-    // After a long quiet gap, only the last 5 minutes of bins matter.
-    if (now - this.binStart > (BINS + 1) * BIN_MS) this.binStart = now - (BINS + 1) * BIN_MS;
-    while (now - this.binStart >= BIN_MS) {
-      this.bins.push(new Map(this.cur));
-      if (this.bins.length > BINS) this.bins.shift();
-      this.binStart += BIN_MS;
+    // Heat: credit the book that was showing (since the last update) to the open bin, time-weighted,
+    // closing every bin that ended on the way.
+    let binStart = this.binStart ?? now;
+    let last = this.lastBookAt ?? now;
+    if (now - binStart > (BINS + 1) * BIN_MS) {
+      // After a long quiet gap, only the last 5 minutes of bins matter.
+      binStart = now - (BINS + 1) * BIN_MS;
+      last = Math.max(last, binStart);
     }
+    const credit = (ms: number) => {
+      if (ms <= 0) return;
+      for (const [p, v] of this.curSigned) this.acc.set(p, (this.acc.get(p) ?? 0) + v * ms);
+    };
+    while (now - binStart >= BIN_MS) {
+      const end: number = binStart + BIN_MS;
+      credit(end - last);
+      last = end;
+      const avg = new Map<number, number>();
+      for (const [p, v] of this.acc) if (v !== 0) avg.set(p, v / BIN_MS);
+      this.bins.push(avg);
+      if (this.bins.length > BINS) this.bins.shift();
+      this.acc.clear();
+      binStart = end;
+    }
+    credit(now - last);
+    this.binStart = binStart;
+    this.lastBookAt = now;
     this.cur = next;
+    this.curSigned = new Map<number, number>();
+    book.bids.ticks.forEach((t, i) => this.curSigned.set(t, book.bids.sizes[i]!));
+    book.asks.ticks.forEach((t, i) => this.curSigned.set(t, -book.asks.sizes[i]!));
     this.maxSize = 0;
     for (const b of this.bins) for (const v of b.values()) this.maxSize = Math.max(this.maxSize, v);
     for (const v of this.cur.values()) this.maxSize = Math.max(this.maxSize, v);
@@ -112,15 +139,15 @@ export class LiquidityTracker {
     }
   }
 
-  /** Resting size (units) on the row `price`..`price+group−1` per 10 s bin, oldest first, then
-   * now. Raw sizes: the ladder scales them against the brightest row on screen. */
+  /** Resting size (units) on the row `price`..`price+group−1`: one time-averaged value per 10 s
+   * bin, oldest first, then the book now. Signed: + bid, − offer (the side it was on THEN). */
   heat(price: number, group = 1): number[] {
     const at = (m: Map<number, number>) => {
       let s = 0;
       for (let k = 0; k < group; k++) s += m.get(price + k) ?? 0;
       return s;
     };
-    return [...this.bins.map(at), at(this.cur)];
+    return [...this.bins.map(at), at(this.curSigned)];
   }
 
   /**
@@ -176,6 +203,9 @@ export class LiquidityTracker {
     this.cur.clear();
     this.bins = [];
     this.binStart = undefined;
+    this.lastBookAt = undefined;
+    this.curSigned.clear();
+    this.acc.clear();
     this.edge = [];
     this.tradedSince.clear();
     this.flows.clear();

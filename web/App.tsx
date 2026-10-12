@@ -1008,10 +1008,21 @@ export function App() {
 
   const rows: number[] = [];
   if (center !== null) for (let i = 0; i < nRows; i++) rows.push(center + (nRows / 2 - i) * g);
-  // Heat column: raw sizes per row, scaled against the brightest cell on screen.
+  // Heat column: time-averaged size per row and 10 s bin (signed by side). Brightness against the
+  // 90th percentile of the cells on screen (one outlier doesn't wash the rest out); yellow = a wall,
+  // 3× the typical (median) cell — the ladder's WALL rule.
   const heatRows = s.showHeat ? new Map(rows.map((t) => [t, m.liq.heat(t, g)])) : undefined;
-  let heatMax = 1e-9;
-  if (heatRows) for (const h of heatRows.values()) for (const v of h) heatMax = Math.max(heatMax, v);
+  let heatP90 = 1e-9;
+  let heatMed = 0;
+  if (heatRows) {
+    const all: number[] = [];
+    for (const h of heatRows.values()) for (const v of h) if (Math.abs(v) > 1e-9) all.push(Math.abs(v));
+    all.sort((a, b) => a - b);
+    if (all.length) {
+      heatP90 = Math.max(1e-9, all[Math.floor(0.9 * (all.length - 1))]!);
+      heatMed = all[Math.floor(0.5 * (all.length - 1))]!;
+    }
+  }
   const hi = (rows[0] ?? 0) + g - 1;
   const lo = rows[rows.length - 1] ?? 0;
 
@@ -1954,8 +1965,6 @@ export function App() {
                   (() => {
                     const hm = heatRows?.get(t) ?? [];
                     const fl = m.liq.flow(t, g, ind.bigMin || 5);
-                    const askSide = ask !== undefined && t >= bk(ask)!;
-                    const rgb = askSide ? '251,146,60' : '34,211,238';
                     return (
                       <span className="heat">
                         <span className="abs">
@@ -1968,10 +1977,14 @@ export function App() {
                             </b>
                           )}
                         </span>
-                        <span className="hstrip" title={`resting size over the last 5 min, left = older (now ${fmtVol(hm.at(-1) ?? 0)})`}>
+                        <span className="hstrip" title={`average resting size per 10 s, last 5 min, left = older (now ${fmtVol(Math.abs(hm.at(-1) ?? 0))})`}>
                           {hm.map((v, i) => {
-                            const x = v / heatMax;
-                            return <i key={i} style={x <= 0 ? undefined : { background: x >= 0.8 ? `rgba(253,230,138,${(0.55 + 0.45 * x).toFixed(2)})` : `rgba(${rgb},${(0.12 + 0.88 * Math.pow(x, 0.7)).toFixed(2)})` }} />;
+                            const a = Math.abs(v);
+                            if (a <= 1e-9) return <i key={i} />;
+                            const wall = heatMed > 0 && a >= 3 * heatMed;
+                            const x = Math.min(1, a / heatP90);
+                            const rgb = v > 0 ? '34,211,238' : '251,146,60';
+                            return <i key={i} style={{ background: wall ? 'rgba(253,230,138,0.95)' : `rgba(${rgb},${(0.15 + 0.85 * Math.pow(x, 0.8)).toFixed(2)})` }} />;
                           })}
                         </span>
                         <em className={fl.net > 0 ? 'stk' : fl.net < 0 ? 'pul' : ''} title={`last minute: pulled ${fmtVol(fl.pulled)} · stacked ${fmtVol(fl.stacked)} · traded ${fmtVol(fl.traded)}`}>

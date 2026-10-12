@@ -71,12 +71,19 @@ describe('liquidity: heat, pull/stack, absorb', () => {
     expect(l.absorb(100, 1, 5)).toBeUndefined(); // 6 sold, but 30 was showing
   });
 
-  it('heat keeps one bin per 10 s, raw sizes summed over the row', () => {
+  it('heat: one TIME-AVERAGED value per 10 s bin, signed by the side it was on then', () => {
     const l = new LiquidityTracker();
-    l.onBook(book([[100, 5], [101, 2]], []), 0);
-    l.onBook(book([[100, 10], [101, 2]], []), BIN_MS);
-    l.onBook(book([[100, 0]], []), 2 * BIN_MS);
-    expect(l.heat(100, 2)).toEqual([7, 12, 0]); // bins end-of-bin: 5+2, 10+2; now 0
+    l.onBook(book([[100, 10]], []), 0); // 10 bid for the first 5 s …
+    l.onBook(book([], [[100, 4]]), BIN_MS / 2); // … then 4 offered for 5 s
+    l.onBook(book([], [[100, 4]]), BIN_MS); // bin closes: avg = (10×5 − 4×5) / 10 = 3
+    l.onBook(book([], [[100, 4]]), 2 * BIN_MS); // second bin: −4 all along
+    expect(l.heat(100)).toEqual([3, -4, -4]);
+  });
+
+  it('heat: a level that flickers on and off reads as its average, not at random', () => {
+    const l = new LiquidityTracker();
+    for (let k = 0; k <= 50; k++) l.onBook(book([[100, k % 2 ? 0 : 20]], []), k * 200); // on/off every 200 ms
+    expect(l.heat(100)[0]).toBeCloseTo(10, 0);
   });
 });
 

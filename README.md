@@ -266,7 +266,7 @@ results are exact (fees in); LIVE ones are the last marked P&L (≈). Kept in th
 - **Day lock bar:** when Protect my day locks entries, a red bar over the ticket says why and that
   exits still work.
 - **heat 5m · pull/stack** column (toggle **heat** in the tape header): resting size at each price
-  over the last 5 minutes (left = older; cyan bids, orange offers, brighter = more, yellow = the biggest size on screen), then size **pulled** (− red: left without
+  over the last 5 minutes, one cell per 10 s showing the AVERAGE size over those 10 s (left = older; cyan = it was a bid then, orange = an offer, brighter = more; yellow = a wall, 3× the typical cell), then size **pulled** (− red: left without
   trading) or **stacked** (+ green) over the last minute. **ABSORB bid** = sellers kept hitting that
   bid (at least your big-trade size, and 2× the buying there), more than was showing when they
   started, the level held (no trade below it since) and at least half the size is still there:
@@ -289,6 +289,7 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
 
 | Version | What changed |
 |---|---|
+| 1.8.4 | Heatmap logic: 10 s cells are time-averaged (steady instead of random), coloured by the side the price was on then, brightness against the 90th percentile, yellow = wall (3× typical). |
 | 1.8.0 | KILL, FEED/VEST health pills, LIVE order status + blotter, fat-finger checks (second click), day-lock bar, heat/pull/stack column, record + replay, execution columns in the journal. |
 | 1.7.1 | Swing stop **≥ min** floor; SuperTrend loads 45 min of history on open; RANGE H/L pinned when off-screen. |
 | 1.7.0 | **SWING** stop, **STP 1m CLOSE** stop entries, market state (**TREND / CHOP / EXTENDED**) with range lines, trade **journal** with setup tags. Off-screen labels take one line instead of crowding out the ladder. PAPER keeps the stop and targets from the click (an ATR or swing stop no longer changes at the fill). |
