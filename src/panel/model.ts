@@ -246,7 +246,7 @@ export class PanelModel {
           const t = Math.round(Number(msg.data.price) / this.tick);
           const q = Number(msg.data.qty);
           this.lastTradeTicks = t;
-          this.liq.onTrade(t, q);
+          this.liq.onTrade(t, q, msg.data.side, msg.data.time);
           this.volumeAt.set(t, (this.volumeAt.get(t) ?? 0) + q);
           const sq = signedQty(msg.data.side, q);
           this.deltaAt.set(t, (this.deltaAt.get(t) ?? 0) + sq);

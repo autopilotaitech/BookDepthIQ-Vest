@@ -1,6 +1,7 @@
 // Liquidity over time, per price: a heatmap of resting size (last 5 minutes in 10 s bins), and
 // pull/stack — size that left the book WITHOUT trading (pulled) or arrived (stacked) — over the last
-// minute. ABSORB marks a price that traded a lot while its size kept coming back. Pure: no I/O.
+// minute. ABSORB marks a price that one side kept hitting — more than was showing there — while the
+// level held and its size stayed (see absorb()). Pure: no I/O.
 // Prices in ticks; sizes in units.
 
 import type { Book } from '../book/book.js';
@@ -10,6 +11,16 @@ export const BINS = 30; // 5 minutes
 export const FLOW_WINDOW_MS = 60_000;
 /** Outermost book levels per side left out of pull/stack (they flicker in and out of view). */
 export const EDGE_LEVELS = 3;
+
+interface Hit {
+  at: number;
+  price: number;
+  qty: number;
+  /** Aggressor side: 'sell' hits the bid, 'buy' lifts the offer. */
+  side: 'buy' | 'sell';
+  /** Resting size showing at that price just before the trade. */
+  shown: number;
+}
 
 interface Flow {
   at: number;
@@ -30,12 +41,18 @@ export class LiquidityTracker {
   private flows = new Map<number, Flow[]>();
   private maxSize = 0;
   private edge: number[] = [];
+  /** Every trade of the last minute (for absorption). */
+  private hits: Hit[] = [];
+  private now = 0;
 
-  onTrade(priceTicks: number, qty: number): void {
+  onTrade(priceTicks: number, qty: number, side?: 'buy' | 'sell', at?: number): void {
     this.tradedSince.set(priceTicks, (this.tradedSince.get(priceTicks) ?? 0) + qty);
+    if (at !== undefined) this.now = Math.max(this.now, at);
+    if (side) this.hits.push({ at: at ?? this.now, price: priceTicks, qty, side, shown: this.cur.get(priceTicks) ?? 0 });
   }
 
   onBook(book: Book, now: number): void {
+    this.now = Math.max(this.now, now);
     const next = new Map<number, number>();
     book.bids.ticks.forEach((t, i) => next.set(t, book.bids.sizes[i]!));
     book.asks.ticks.forEach((t, i) => next.set(t, book.asks.sizes[i]!));
@@ -86,6 +103,7 @@ export class LiquidityTracker {
   }
 
   private prune(now: number): void {
+    if (this.hits.length && now - this.hits[0]!.at > FLOW_WINDOW_MS) this.hits = this.hits.filter((h) => now - h.at <= FLOW_WINDOW_MS);
     for (const [p, arr] of this.flows) {
       const keep = arr.filter((f) => now - f.at <= FLOW_WINDOW_MS);
       if (keep.length) this.flows.set(p, keep);
@@ -104,12 +122,42 @@ export class LiquidityTracker {
     return [...this.bins.map(at), at(this.cur)].map((v) => Math.min(1, v / max));
   }
 
+  /**
+   * Absorption at the row `price`..`price+group−1` over the last minute: 'bid' when sellers kept
+   * hitting it and buyers soaked it up, 'ask' the other way round. All of:
+   *  1. one side's aggressive volume there ≥ `absorbMin` and ≥ 2× the other side's;
+   *  2. that volume ≥ 1.5× the size that was SHOWING when the hitting began (hidden or refilled size);
+   *  3. the level held: no trade through it since (below a bid, above an offer);
+   *  4. at least half of that size still rests there now.
+   * The market maker's re-quoting (which moves size in and out constantly) plays no part.
+   */
+  absorb(price: number, group = 1, absorbMin = 5): 'bid' | 'ask' | undefined {
+    const top = price + group - 1;
+    const recent = this.hits.filter((h) => this.now - h.at <= FLOW_WINDOW_MS);
+    const here = recent.filter((h) => h.price >= price && h.price <= top);
+    if (!here.length) return undefined;
+    const sells = here.filter((h) => h.side === 'sell').reduce((a, h) => a + h.qty, 0);
+    const buys = here.filter((h) => h.side === 'buy').reduce((a, h) => a + h.qty, 0);
+    const side = sells >= absorbMin && sells >= 2 * buys ? 'bid' : buys >= absorbMin && buys >= 2 * sells ? 'ask' : undefined;
+    if (!side) return undefined;
+    const hitSide = side === 'bid' ? 'sell' : 'buy';
+    const first = here.find((h) => h.side === hitSide)!;
+    const traded = side === 'bid' ? sells : buys;
+    let shown = 0;
+    for (let p = price; p <= top; p++) shown = Math.max(shown, here.find((h) => h.side === hitSide && h.price === p)?.shown ?? 0);
+    if (traded < 1.5 * shown) return undefined;
+    if (recent.some((h) => h.at >= first.at && (side === 'bid' ? h.price < price : h.price > top))) return undefined;
+    let rest = 0;
+    for (let p = price; p <= top; p++) rest += this.cur.get(p) ?? 0;
+    if (rest <= 0 || rest < 0.5 * shown) return undefined;
+    return side;
+  }
+
   /** Over the last minute at `price` (a row of `group` ticks): units stacked − pulled, traded, and
-   * whether it absorbed (traded at least `absorbMin` while stacking back ≥ 60% of what traded).
-   * `signal` is false when the net is under 20% of the churn: on Vest's quoted book the market maker
+   * absorption (see absorb()). `signal` is false when the net is under 20% of the churn: on Vest's quoted book the market maker
    * re-quotes its ladder a tick or two over several times a second, which moves size in and out of
    * every price without anyone pulling or adding. */
-  flow(price: number, group = 1, absorbMin = 5): { net: number; pulled: number; stacked: number; traded: number; absorb: boolean; signal: boolean } {
+  flow(price: number, group = 1, absorbMin = 5): { net: number; pulled: number; stacked: number; traded: number; absorb: 'bid' | 'ask' | undefined; signal: boolean } {
     let pulled = 0;
     let stacked = 0;
     let traded = 0;
@@ -120,7 +168,7 @@ export class LiquidityTracker {
         traded += f.traded;
       }
     const net = stacked - pulled;
-    return { net, pulled, stacked, traded, absorb: traded >= absorbMin && stacked >= 0.6 * traded, signal: Math.abs(net) > 0 && Math.abs(net) >= 0.2 * (pulled + stacked) };
+    return { net, pulled, stacked, traded, absorb: this.absorb(price, group, absorbMin), signal: Math.abs(net) > 0 && Math.abs(net) >= 0.2 * (pulled + stacked) };
   }
 
   reset(): void {
@@ -130,6 +178,8 @@ export class LiquidityTracker {
     this.edge = [];
     this.tradedSince.clear();
     this.flows.clear();
+    this.hits = [];
+    this.now = 0;
     this.maxSize = 0;
   }
 }

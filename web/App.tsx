@@ -1961,7 +1961,14 @@ export function App() {
                         <em className={fl.net > 0 ? 'stk' : fl.net < 0 ? 'pul' : ''} title={`last minute: pulled ${fmtVol(fl.pulled)} · stacked ${fmtVol(fl.stacked)} · traded ${fmtVol(fl.traded)}`}>
                           {fl.signal && Math.abs(fl.net) >= 0.01 ? `${fl.net > 0 ? '+' : '−'}${fmtVol(Math.abs(fl.net))}` : ''}
                         </em>
-                        {fl.absorb && <b className="absorb">ABSORB</b>}
+                        {fl.absorb && (
+                          <b
+                            className={`absorb ${fl.absorb}`}
+                            title={fl.absorb === 'bid' ? 'sellers kept hitting this bid (more than was showing) and it held: buyers absorbing' : 'buyers kept lifting this offer (more than was showing) and it held: sellers absorbing'}
+                          >
+                            ABSORB {fl.absorb}
+                          </b>
+                        )}
                       </span>
                     );
                   })()}

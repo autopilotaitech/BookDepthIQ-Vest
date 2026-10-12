@@ -267,8 +267,11 @@ results are exact (fees in); LIVE ones are the last marked P&L (≈). Kept in th
   exits still work.
 - **heat 5m · pull/stack** column (toggle **heat** in the tape header): resting size at each price
   over the last 5 minutes (left = older, brighter = more), then size **pulled** (− red: left without
-  trading) or **stacked** (+ green) over the last minute. **ABSORB** = a price that traded at least
-  your big-trade size while its size kept coming back.
+  trading) or **stacked** (+ green) over the last minute. **ABSORB bid** = sellers kept hitting that
+  bid (at least your big-trade size, and 2× the buying there), more than was showing when they
+  started, the level held (no trade below it since) and at least half the size is still there:
+  buyers absorbing. **ABSORB ask** is the same at an offer. The market maker's constant re-quoting
+  plays no part.
 - **Replay:** the panel records the market on screen (book 4×/s, every trade, ticker) into this
   browser, kept 7 days. **Replay ○** in the header lists the recordings; **▶ start** plays one
   through the ladder in PAPER only (LIVE is off; a fresh paper account), with « 1m / 1m », 1–10×

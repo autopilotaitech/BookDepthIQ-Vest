@@ -37,15 +37,38 @@ describe('liquidity: heat, pull/stack, absorb', () => {
     expect(l.flow(106).net).toBe(0);
   });
 
-  it('a level that keeps refilling while hit is ABSORB', () => {
+  it('ABSORB bid: sellers hit 100 for more than was showing, it held and still has size', () => {
+    const l = new LiquidityTracker();
+    l.onBook(deep(), 0); // 10 showing at 100
+    for (let k = 1; k <= 4; k++) {
+      l.onTrade(100, 4, 'sell', k * 1000); // 16 sold into a bid showing 10
+      l.onBook(deep(), k * 1000 + 500); // refilled each time
+    }
+    expect(l.absorb(100, 1, 5)).toBe('bid');
+  });
+
+  it('no ABSORB when price trades through, when it traded less than was showing, or when both sides traded', () => {
+    const through = new LiquidityTracker();
+    through.onBook(deep(), 0);
+    for (let k = 1; k <= 4; k++) through.onTrade(100, 4, 'sell', k * 1000);
+    through.onTrade(99, 1, 'sell', 5000); // broke below
+    expect(through.absorb(100, 1, 5)).toBeUndefined();
+    const small = new LiquidityTracker();
+    small.onBook(deep({ 100: 40 }), 0);
+    for (let k = 1; k <= 4; k++) small.onTrade(100, 4, 'sell', k * 1000); // 16 < 1.5 x 40
+    expect(small.absorb(100, 1, 5)).toBeUndefined();
+    const both = new LiquidityTracker();
+    both.onBook(deep(), 0);
+    for (let k = 1; k <= 4; k++) both.onTrade(100, 4, k % 2 ? 'sell' : 'buy', k * 1000);
+    expect(both.absorb(100, 1, 5)).toBeUndefined();
+  });
+
+  it('constant re-quoting alone never reads as ABSORB', () => {
     const l = new LiquidityTracker();
     l.onBook(deep(), 0);
-    for (let k = 1; k <= 3; k++) {
-      l.onTrade(100, 4);
-      l.onBook(deep({ 100: 6 }), k * 1000); // hit for 4 …
-      l.onBook(deep(), k * 1000 + 500); // … and refilled
-    }
-    expect(l.flow(100, 1, 5)).toMatchObject({ traded: 12, absorb: true });
+    for (let k = 1; k <= 20; k++) l.onBook(deep({ 100: k % 2 ? 0 : 30 }), k * 200);
+    l.onTrade(100, 6, 'sell', 4100);
+    expect(l.absorb(100, 1, 5)).toBeUndefined(); // 6 sold, but 30 was showing
   });
 
   it('heat keeps one bin per 10 s, scaled to the largest size', () => {

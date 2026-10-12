@@ -518,7 +518,9 @@ b { font-weight: 600; }
 .lrow .heat em { font-style: normal; font-size: 10px; min-width: 3.2em; text-align: right; color: var(--muted); }
 .lrow .heat em.stk { color: #34d399; }
 .lrow .heat em.pul { color: #f87171; }
-.lrow .heat .absorb { font-size: 9px; color: #22d3ee; border: 1px solid #0e7490; border-radius: 2px; padding: 0 3px; }
+.lrow .heat .absorb { font-size: 9px; border-radius: 2px; padding: 0 3px; white-space: nowrap; }
+.lrow .heat .absorb.bid { color: #22d3ee; border: 1px solid #0e7490; }
+.lrow .heat .absorb.ask { color: #fb923c; border: 1px solid #c2410c; }
 .lockbar { background: #3a0d12; color: #fecaca; border: 1px solid #ef4444; border-radius: 4px; padding: 4px 8px; margin-bottom: 4px; font-size: 12px; }
 .noticebar { background: #1d1405; color: #fde68a; border: 1px solid #b45309; border-radius: 4px; padding: 4px 8px; margin-bottom: 4px; font-size: 12px; cursor: pointer; }
 .checks { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 11px; margin: 2px 0; }
