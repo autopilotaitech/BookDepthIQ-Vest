@@ -2,8 +2,10 @@
 
 A depth-ladder (DOM) scalping panel for **[Vest Markets](https://vestmarkets.com)** perps, starting
 with NQ. It runs as a Chrome extension next to your logged-in Vest tab. You get a price ladder with
-live Vest book, tape and volume, one-click market and limit entries with TP/SL brackets, draggable
-orders, B/E and one-key flatten.
+live Vest book, tape and volume, one-click market, limit and scale entries with TP/SL brackets (up
+to three partial targets), $-risk sizing, a stop and targets you can preview on the ladder before
+you enter, trade management (B/E, trailing stop on R or SuperTrend, close half) and one-key
+flatten. **New since 1.4: see [What's new](#whats-new).**
 
 **Companion:** [Vest Liquidity Scanner](https://github.com/autopilotaitech/BookDepthIQ-Vest-Scanner)
 ranks all of Vest's markets by real trading, volatility and trend vs chop, so you know which one to
@@ -25,8 +27,11 @@ changes, and held stops disarm as on any switch).
 > - **Prop-account terms are your responsibility.** Vest's Prop Terms treat API access as a feature
 >   Vest controls and allow one account per person. Using a third-party panel may be treated as
 >   unauthorized use. Read the terms and decide for yourself.
-> - **Manual trading only.** The panel has no algos, no auto-entry and no copier. Nothing is sent
->   without your click or an armed hotkey.
+> - **Manual trading only.** The panel has no algos, no auto-entry and no copier. Nothing OPENS a
+>   position without your click, an armed hotkey or a stop you armed yourself. A few management
+>   features you can turn on (B/E after TP1, trailing stop, stop guard, close at your daily loss
+>   limit, close before the weekend lock) move a stop or close a position without a click; all are
+>   off by default (see *Safety rules*).
 > - Not financial advice. No warranty (MIT). Start with the smallest size Vest allows.
 
 ---
@@ -86,11 +91,14 @@ Every LIVE launch starts in PAPER again. LIVE is never remembered.
 |---|---|---|
 | **BUY MKT / SELL MKT** buttons | market fill | market order, with TP/SL legs if BRACKET is on |
 | Click the **BUY** / **SELL** column at a price | limit order | **limit order** (GTC) with TP/SL legs at your points from that price |
+| Click with **SCALE ON** | 2–10 limits | **scale order** like Vest's own: the first limit opens, the rest are added to the same position (no TP/SL) |
 | **Shift+click** the BUY / SELL column | stop order | **panel-held stop**: a buy stop above the ask or sell stop below the bid. When a trade prints at or through it, the panel sends a **market** entry with your TP/SL (dashed STP chip; click to cancel, drag to move) |
 | Click an **LMT** chip | cancel | cancel on Vest |
 | Drag an **LMT** chip to another row | move | move on Vest (cancel, then re-place the unfilled size at the new price; TP/SL shift with it) |
-| Drag a **TP** / **SL** chip | move the leg | move the leg on Vest |
+| Drag a **TP** / **SL** chip | move the leg | move the leg on Vest (each partial target on its own) |
+| Drag a **◇** preview stop / target | change your stop / target distance | same — nothing is sent |
 | **B/E** | stop to entry ± offset | moves (or adds) the Vest stop |
+| **CLOSE HALF** | half at market | half at market on Vest (never blocked) |
 | **FLATTEN** / **F** | close all | closes the Vest position, then cancels its resting orders |
 | **CANCEL ALL** / **Esc** | cancel all | cancels every resting Vest order on the symbol |
 | REVERSE / adding to an open position | yes | not yet (paper only) |
@@ -189,9 +197,11 @@ and delta count from when the panel opens.
 - **PREVIEW LONG / SHORT** shows the stop and targets (◇, dashed) on the ladder before you enter,
   with their $. Nothing is sent. Drag the ◇ stop to change it: in $ risk sizing the size follows, so
   the risk stays the same. In ATR mode **snap back** returns to ATR × multiple.
-- **CLOSE ½** closes half the position at market. Like FLATTEN, it is never blocked.
+- **CLOSE HALF** closes half the position at market. Like FLATTEN, it is never blocked. Partial
+  targets shrink from the furthest one.
 - **trail** (from 1R / 1.5R / 2R): once price is that far in your favour, the stop follows the best
-  price one risk behind and only moves your way. **on ST1 / on ST2**: the stop sits on that
+  price one risk behind and only moves your way. Picking a trail while you are already in a trade
+  applies it to that position at once; **off** ends it. **on ST1 / on ST2**: the stop sits on that
   SuperTrend line while the line is on your side (under a long, over a short), and never moves
   back; a flipped line leaves the stop where it is. **stop guard** (LIVE): if a Vest position loses
   its stop, the panel puts it back at the last price and shows a red warning.
@@ -202,8 +212,13 @@ and delta count from when the panel opens.
   are locked. Exits are never locked.
 
 **In a trade.** A bar under the position row puts the stop, your entry, the price now and every
-target on one line, with the $ at each. In LIVE, a **room to floor** bar under the account row
-shows how much of the drawdown allowance is left (amber under 50%, red under 25%).
+target on one line, with the $ at each, and **worst case now** (what the stop costs if it fills,
+exit fee included; with no stop, the room left to the fail floor). On the ladder the same stop,
+entry, targets and trailing line are drawn across the rows with their $ (dashed while
+previewing). The **fit** button in the price header widens the rows so all of them are on screen;
+leave it off when placing orders, because wide rows place at the row's price. In LIVE, a **room to
+floor** bar under the account row shows how much of the drawdown allowance is left (amber under
+50%, red under 25%).
 
 **Hotkeys**
 - **F** = flatten and **Esc** = cancel all. Both always work.
@@ -217,6 +232,18 @@ shows how much of the drawdown allowance is left (amber under 50%, red under 25%
 **The result bar.** Every LIVE action shows its result right under the LIVE banner: green ✓ when
 Vest accepted it, red ✗ with the reason when it was refused. The full request/response log is in
 the **LIVE LOG** pane. Its **copy** button copies it with your login already blanked out.
+
+## What's new
+
+| Version | What changed |
+|---|---|
+| 1.6.5 | The trail menu applies to the position you're already in, not only the next entry. |
+| 1.6.4 | Calm ladder: re-centres only when price drifts a sixth of the screen, and holds still under your mouse. |
+| 1.6.3 | Trailing stop on SuperTrend: **on ST1** or **on ST2**. |
+| 1.6.2 | **fit** button (off by default) instead of always widening the rows. ATR mode warns when there is no stop yet. |
+| 1.6.1 | Stop, entry, targets and trail drawn across the ladder with their $. |
+| 1.6.0 | $ risk buttons (fees included), ATR stop with targets in R, entry **PREVIEW**, **CLOSE HALF**, worst case now, trailing stop, stop guard, **Protect my day** (daily loss limit, max trades, cooldown, close before the weekend lock). |
+| 1.5.0 | Bracket bar in a trade, room-to-floor bar, TP2/TP3 with a size split, B/E after TP1, **SCALE** orders. |
 
 ## Safety rules built in
 
