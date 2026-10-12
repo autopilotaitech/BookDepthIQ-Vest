@@ -108,6 +108,15 @@ export function appendLimitBody(i: { symbol: string; positionId: string; isBuy: 
   };
 }
 
+/**
+ * POST /v3/positions/reduce — close PART of a position at market. Shape read from Vest's own web
+ * app (2026-10-12): its ticket reduces an open position with {positionId, orderType, leverage,
+ * quantity, timeInForce, reduceOnly} plus the symbol. Market TIF is IOC, as on /positions/open.
+ */
+export function reduceMarketBody(symbol: string, positionId: string, quantity: string, leverage: string): Record<string, unknown> {
+  return { positionId, orderType: 'market', leverage, quantity, timeInForce: 'IOC', reduceOnly: true, symbol };
+}
+
 /** POST /v3/positions/close — leverage is required by the venue. */
 export function closeBody(symbol: string, positionId: string, leverage: string): Record<string, unknown> {
   return { symbol, positionId, orderType: 'market', leverage };

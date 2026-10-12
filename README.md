@@ -181,6 +181,24 @@ and delta count from when the panel opens.
   own Scale ticket. Shift-click is still a stop. Scale orders carry no TP/SL (Vest's don't either):
   press B/E once filled.
 
+- **Risk buttons** ($25 / $50 / $100 / $200, editable in settings) size the trade so a stop-out
+  costs that much, **taker fees both ways included**. $ risk sizing always counts the fees.
+- **STOP PTS / ATR**: in ATR mode the stop is the ATR of the 60 s candles (the ST1 engine) × your
+  multiple, and the targets are R multiples of it, so a wilder market gets a wider stop and a smaller
+  size for the same $ risk.
+- **PREVIEW LONG / SHORT** shows the stop and targets (◇, dashed) on the ladder before you enter,
+  with their $. Nothing is sent. Drag the ◇ stop to change it: in $ risk sizing the size follows, so
+  the risk stays the same. In ATR mode **snap back** returns to ATR × multiple.
+- **CLOSE ½** closes half the position at market. Like FLATTEN, it is never blocked.
+- **trail** (from 1R / 1.5R / 2R): once price is that far in your favour, the stop follows the best
+  price one risk behind and only moves your way. **stop guard** (LIVE): if a Vest position loses
+  its stop, the panel puts it back at the last price and shows a red warning.
+- **Protect my day** (settings; all off by default): a daily loss limit (with *also close open
+  trades*), max trades per day, a cooldown after a loss, and *close before the weekend lock*. The
+  day starts 17:00 Chicago. When the room left is smaller than your usual risk, **size to fit**
+  offers the size that fits. The header shows **day $ / limit · trades** and **LOCKED** when entries
+  are locked. Exits are never locked.
+
 **In a trade.** A bar under the position row puts the stop, your entry, the price now and every
 target on one line, with the $ at each. In LIVE, a **room to floor** bar under the account row
 shows how much of the drawdown allowance is left (amber under 50%, red under 25%).
@@ -207,9 +225,11 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
   on Vest: close the window, switch instrument or go to PAPER and they are disarmed (the header
   shows **⚡ N stops armed** while any are live). Each one fires once, through the same checks as a
   click.
-- **B/E after TP1** is the only other thing that acts without a click: once TP1 fills it sends
-  one stop move to entry ± your offset. Off unless you tick it; disarmed by the same things as
-  panel-held stops, and by FLATTEN or CANCEL ALL.
+- **Other things that act without a click**, each off until you turn it on, and none of them ever
+  opens a position: **B/E after TP1** (one stop move when TP1 fills), the **trailing stop**,
+  **stop guard**, **close at the daily loss limit** and **close before the weekend lock**. They
+  need this window open. B/E after TP1 and the trailing stop disarm like panel-held stops, and on
+  FLATTEN or CANCEL ALL.
 - **Vest is the source of truth.** Positions, orders and balance come from Vest and are never
   computed locally. Vest pushes account changes over its private socket, and the panel re-reads
   them at once (the account row shows **Vest ⚡ live**). If the push drops, it falls back to

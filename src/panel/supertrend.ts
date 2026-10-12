@@ -191,6 +191,11 @@ export class TrendEngine {
     return { dir: this.dir, lineTicks: this.line === undefined ? undefined : Math.round(this.line), switched: this.lastSwitched };
   }
 
+  /** Current ATR in ticks (EMA of true range over this engine's candles), once known. */
+  atrTicks(): number | undefined {
+    return this.atr;
+  }
+
   /** Passive read: never reports a flip. */
   snapshot(): TrendSnapshot {
     return { dir: this.dir, lineTicks: this.line === undefined ? undefined : Math.round(this.line), switched: false };

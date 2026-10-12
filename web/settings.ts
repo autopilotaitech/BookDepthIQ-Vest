@@ -50,6 +50,26 @@ export interface Settings {
   scaleSpanTicks: number;
   scaleSkew: number;
   scaleDir: SkewDir;
+  /** One-click $ risk buttons (size by risk at the stop, fees included). */
+  riskPresets: number[];
+  /** Stop distance: your points, or ATR of the panel's 60 s candles × atrMult. In ATR mode the
+   * targets are R multiples of that stop (0 = off). */
+  stopMode: 'pts' | 'atr';
+  atrMult: number;
+  tpR: number[];
+  /** Show the would-be bracket on the ladder before entry (drag the stop to change it). */
+  preview: 'off' | 'long' | 'short';
+  /** Trailing stop start in R (0 = off). The panel moves the stop without a click (owner OK 2026-10-12). */
+  trailStartR: number;
+  /** Stop recovery: re-place a stop that disappeared from a Vest position (owner OK 2026-10-12). */
+  stopGuard: boolean;
+  /** Protect my day — all 0/false = off. */
+  dayLossUsd: number;
+  closeAtDayLimit: boolean;
+  maxTradesDay: number;
+  cooldownSec: number;
+  /** Close a position 5 min before Vest's weekend lock (not crypto: it has none). */
+  weekendClose: boolean;
 }
 
 const KEY = 'bdiqvest.settings.v3';
@@ -86,6 +106,18 @@ export const DEFAULTS: Settings = {
   scaleSpanTicks: 0,
   scaleSkew: 1,
   scaleDir: 'even',
+  riskPresets: [25, 50, 100, 200],
+  stopMode: 'pts',
+  atrMult: 1.5,
+  tpR: [1, 2, 0],
+  preview: 'off',
+  trailStartR: 0,
+  stopGuard: false,
+  dayLossUsd: 0,
+  closeAtDayLimit: false,
+  maxTradesDay: 0,
+  cooldownSec: 0,
+  weekendClose: false,
 };
 
 /** The old 0.01 default was a first-release cap the owner turned off (2026-10-08). */

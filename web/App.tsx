@@ -2,7 +2,10 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { bestAsk, bestBid } from '../src/book/book';
 import { PanelModel } from '../src/panel/model';
 import { formatPrice, tickDecimals, type Result, type Side, type WorkingOrder } from '../src/sim/paper';
-import { failPrice, leverageUsed, marginUsed, maxUnits, riskUsd, unitsForNotional, unitsForRisk } from '../src/sim/account';
+import { failPrice, leverageUsed, marginUsed, maxUnits, unitsForNotional } from '../src/sim/account';
+import { dayCheck, dayLimitHit, riskWithFees, tradingDay, unitsForRiskWithFees, type DayState } from '../src/panel/protect';
+import { weekendCloseAt } from '../src/live/manage';
+import { fetchMarketHours } from '../src/vest/rest';
 import { aggregate, bucketOf, offscreen, rowPnlUsd, stepGroup } from '../src/panel/ladderMath';
 import { loadSettings, saveSettings, type Settings, type SizeMode } from './settings';
 import { edgeRatio, roundTrip, spreadGate } from '../src/panel/cost';
@@ -72,8 +75,8 @@ function PointsInput(props: { ticks: number; tick: number; signed?: boolean; onT
  * In a trade: SL, entry, now and every target on one bar, with $ at each. Display only. Legs are
  * Vest's own in LIVE and the paper broker's in PAPER.
  */
-function BracketBar(props: { long: boolean; qty: number; avgTicks: number; nowTicks: number | undefined; legs: WorkingOrder[]; fail: number | undefined; tick: number }) {
-  const { long, qty, avgTicks, nowTicks, legs, fail, tick } = props;
+function BracketBar(props: { long: boolean; qty: number; avgTicks: number; nowTicks: number | undefined; legs: WorkingOrder[]; fail: number | undefined; tick: number; fee: number; roomUsd: number }) {
+  const { long, qty, avgTicks, nowTicks, legs, fail, tick, fee, roomUsd } = props;
   const dir = long ? 1 : -1;
   const usd = (t: number, q: number) => (t - avgTicks) * dir * q * tick;
   const tps = legs.filter((l) => l.leg === 'tp').sort((a, b) => (a.priceTicks - b.priceTicks) * dir);
@@ -89,7 +92,8 @@ function BracketBar(props: { long: boolean; qty: number; avgTicks: number; nowTi
   const x = (t: number) => `${(((long ? t - lo : hi - t) / (hi - lo)) * 92 + 4).toFixed(2)}%`;
   const open = nowTicks === undefined ? undefined : usd(nowTicks, qty);
   const sl = sls[0];
-  const risk = sl ? usd(sl.priceTicks, qty) : undefined;
+  // Worst case now: the stop fills (plus the exit fee); with no stop, everything down to the floor.
+  const worst = sl ? usd(sl.priceTicks, qty) - qty * sl.priceTicks * tick * fee : -Math.max(0, roomUsd);
   return (
     <section className="brbar">
       <div className="brhead">
@@ -100,7 +104,9 @@ function BracketBar(props: { long: boolean; qty: number; avgTicks: number; nowTi
             <b className={pnlClass(open)}>{fmtUsd(open)}</b> <small>{(((nowTicks! - avgTicks) * dir) * tick).toFixed(2)} pts</small>
           </>
         )}
-        <small>{risk === undefined ? ' · no stop on this position' : ` · at stop ${fmtUsd(risk)}`}</small>
+        <small className={worst < 0 ? 'neg' : 'pos'} title="what you lose (or keep) if the stop fills now, exit fee included; with no stop, the room left to the fail floor">
+          {sl ? ` · worst case now ${fmtUsd(worst)}` : ` · NO STOP — worst case ${fmtUsd(worst)} (to the floor)`}
+        </small>
         {fail !== undefined && <small> · fail {formatPrice(fail, tick)}</small>}
       </div>
       <div className="brtrack">
@@ -217,15 +223,22 @@ export function App() {
 
   // Bracket settings are the user's numbers, applied to the paper broker as they change.
   // TP1 is the TP pts box; TP2/TP3 and the split turn it into partial targets.
+  // ATR mode: stop = ATR of the 60 s candles × your multiple; targets = your R multiples of it. A
+  // stop dragged on the preview overrides it until "snap back".
+  const atrMode = s.stopMode === 'atr';
+  const atrT = m.trend.t1.atrTicks();
+  const [slOverride, setSlOverride] = useState<number | null>(null);
+  const slEff = atrMode ? (slOverride ?? (atrT !== undefined && atrT > 0 ? Math.max(1, Math.round(atrT * s.atrMult)) : 0)) : s.slTicks;
+  const tpEff = atrMode ? [0, 1, 2].map((i) => ((s.tpR[i] ?? 0) > 0 && slEff > 0 ? Math.max(1, Math.round(slEff * (s.tpR[i] ?? 0))) : 0)) : [s.tpTicks, s.tp2Ticks, s.tp3Ticks];
   const split = parseSplit(s.tpSplit);
-  const targets: Target[] = [s.tpTicks, s.tp2Ticks, s.tp3Ticks].map((ticks, i) => ({ ticks, pct: split[i] ?? 0 }));
+  const targets: Target[] = tpEff.map((ticks, i) => ({ ticks, pct: split[i] ?? 0 }));
   const multiTp = targets.filter((t) => t.ticks > 0).length >= 2;
-  const br: BracketCtx = { bracketsOn: s.bracketsOn, tpTicks: s.tpTicks, slTicks: s.slTicks, targets, beAfterTp1: multiTp && s.beAfterTp1, beOffset: s.beOffset };
+  const br: BracketCtx = { bracketsOn: s.bracketsOn, tpTicks: tpEff[0]!, slTicks: slEff, targets, beAfterTp1: multiTp && s.beAfterTp1, beOffset: s.beOffset, trailStartR: s.trailStartR };
   const brKey = JSON.stringify(br);
   const broker = m.broker;
   useEffect(() => {
     const b = JSON.parse(brKey) as BracketCtx;
-    if (broker) broker.bracket = { enabled: b.bracketsOn, tpTicks: b.tpTicks, slTicks: b.slTicks, targets: b.targets, beAfterTp1: b.beAfterTp1, beOffset: b.beOffset };
+    if (broker) broker.bracket = { enabled: b.bracketsOn, tpTicks: b.tpTicks, slTicks: b.slTicks, targets: b.targets, beAfterTp1: b.beAfterTp1, beOffset: b.beOffset, trailStartR: b.trailStartR };
   }, [broker, brKey]);
 
   useEffect(() => {
@@ -442,6 +455,7 @@ export function App() {
   // ── sizing ──
   const sizeDec = m.info?.sizeDecimals ?? 4;
   const refPx = mid !== undefined ? mid * tick : undefined;
+  const feeRate = Number(m.info?.takerFee ?? 0) || 0;
   const units =
     s.sizeMode === 'units'
       ? s.sizeInput
@@ -449,7 +463,9 @@ export function App() {
         ? refPx
           ? unitsForNotional(s.sizeInput, refPx, sizeDec)
           : 0
-        : unitsForRisk(s.sizeInput, s.slTicks, tick, sizeDec);
+        : refPx
+          ? unitsForRiskWithFees(s.sizeInput, slEff, tick, refPx, feeRate, sizeDec)
+          : 0;
   const lpos = live && m.info ? L.positionFor(m.info.symbol) : undefined;
   const liveOpen = lpos ? liveOpenPnl(lpos, tick, bid, ask) : 0;
   const equity = live ? (L.balance ?? 0) + liveOpen : m.equity();
@@ -488,23 +504,24 @@ export function App() {
   const liveStopIds = liveStops.map((x) => x.id);
   const liveStopChips: WorkingOrder[] = liveStops.map((x, i) => ({ id: -2000 - i, side: x.side, type: 'stop' as const, priceTicks: x.ticks, qty: x.units, reduceOnly: false }));
   const orders = live ? [...liveEntries, ...liveStopChips, ...liveLegs] : (broker?.orders ?? []);
-  const ordersAt = (t: number, side: Side) => orders.filter((o) => bucketOf(o.priceTicks, g) === t && o.side === side);
+  const ordersAt = (t: number, side: Side) => [...orders, ...pvChips].filter((o) => bucketOf(o.priceTicks, g) === t && o.side === side);
   const pos = live ? { qty: lpos?.qty ?? 0, avgTicks: lpos ? lpos.openPrice / tick : 0 } : (broker?.position ?? { qty: 0, avgTicks: 0 });
   const avgRow = pos.qty !== 0 ? Math.round(pos.avgTicks) : undefined;
 
   const place = (side: Side, t: number, stop: boolean) => {
+    if (dayBlocked()) return;
     if (live) {
       const c = m.marketCtx();
       // Vest has no stop entry type: the panel holds the stop and fires a MARKET entry (stops.ts).
       if (stop) {
-        if (c) act(L.armStop(side, t, units, c, br));
+        if (c) act(countEntry(L.armStop(side, t, units, c, br)));
         return;
       }
       if (s.scaleOn) {
-        if (c) actAsync(L.enterScale(side, units, t, scaleEnd(side, t), s.scaleCount, s.scaleSkew, s.scaleDir, c));
+        if (c) actAsync(L.enterScale(side, units, t, scaleEnd(side, t), s.scaleCount, s.scaleSkew, s.scaleDir, c).then(countEntry));
         return;
       }
-      if (c) actAsync(L.enterLimit(side, units, t, c, br));
+      if (c) actAsync(L.enterLimit(side, units, t, c, br).then(countEntry));
       return;
     }
     if (!broker) return;
@@ -512,34 +529,172 @@ export function App() {
       const end = scaleEnd(side, t);
       const plan = scaleOrders(units, sizeDec, t, end, s.scaleCount, s.scaleSkew, s.scaleDir);
       if (!plan.ok) return act({ ok: false, message: plan.message });
-      act(
+      act(countEntry(
         m.guarded(side, units, Math.max(t, end) * tick, () => {
           const bad = plan.legs.map((l) => broker.limitOrder(side, l.qty, l.ticks)).filter((r) => !r.ok);
           return bad.length ? { ok: false, message: bad.map((r) => r.message).join('; ') } : { ok: true, message: `SCALE ${side.toUpperCase()} ${units} in ${plan.legs.length} limits ${px(t)} → ${px(end)}` };
         }),
-      );
+      ));
       return;
     }
-    act(m.guarded(side, units, t * tick, () => (stop ? broker.stopOrder(side, units, t) : broker.limitOrder(side, units, t))));
+    act(countEntry(m.guarded(side, units, t * tick, () => (stop ? broker.stopOrder(side, units, t) : broker.limitOrder(side, units, t)))));
   };
   /** A scale runs from the clicked price AWAY from the market: down for buys, up for sells. */
   const scaleEnd = (side: Side, t: number) => t + (side === 'buy' ? -1 : 1) * s.scaleSpanTicks;
   const market = (side: Side) => {
+    if (dayBlocked()) return;
     if (live) {
       const c = m.marketCtx();
-      if (c) actAsync(L.enter(side, units, c, br));
+      if (c) actAsync(L.enter(side, units, c, br).then(countEntry));
       return;
     }
     if (!broker) return;
     const p = side === 'buy' ? ask : bid;
-    act(m.guarded(side, units, p === undefined ? undefined : p * tick, () => broker.marketOrder(side, units)));
+    act(countEntry(m.guarded(side, units, p === undefined ? undefined : p * tick, () => broker.marketOrder(side, units))));
   };
   const reverse = () => {
     if (live) return paperOnly('REVERSE');
-    if (!broker || !pos.qty) return;
+    if (!broker || !pos.qty || dayBlocked()) return;
     const side: Side = pos.qty > 0 ? 'sell' : 'buy';
     const p = side === 'buy' ? ask : bid;
     act(m.guarded(side, Math.abs(pos.qty) * 2, p === undefined ? undefined : p * tick, () => broker.reverse()));
+  };
+
+  // ── Protect my day (all off by default): limits on NEW entries only; exits never pass through it ──
+  const dayKey = live ? `live:${L.account?.id ?? ''}` : 'paper';
+  const today = tradingDay(Date.now());
+  const [days, setDays] = useState<Record<string, DayState & { limitClosed?: boolean }>>(() => {
+    try {
+      return JSON.parse(localStorage.getItem('bdiqvest.day.v1') ?? '{}') as Record<string, DayState>;
+    } catch {
+      return {};
+    }
+  });
+  const saveDay = (patch: Partial<DayState & { limitClosed?: boolean }>) =>
+    setDays((prev) => {
+      const cur = prev[dayKey]?.day === today ? prev[dayKey]! : { day: today, startEquity: equity, trades: 0 };
+      const next = { ...prev, [dayKey]: { ...cur, ...patch } };
+      try {
+        localStorage.setItem('bdiqvest.day.v1', JSON.stringify(next));
+      } catch {
+        /* storage unavailable: the day still counts in this window */
+      }
+      return next;
+    });
+  const equityKnown = !live || L.balance !== undefined;
+  const dayRec = days[dayKey]?.day === today ? days[dayKey] : undefined;
+  useEffect(() => {
+    if (!dayRec && equityKnown) saveDay({});
+  });
+  const daySt: DayState = dayRec ?? { day: today, startEquity: equity, trades: 0 };
+  const limits = { lossUsd: s.dayLossUsd, maxTrades: s.maxTradesDay, cooldownSec: s.cooldownSec };
+  const limitsOn = limits.lossUsd > 0 || limits.maxTrades > 0 || limits.cooldownSec > 0;
+  const nextRisk = s.bracketsOn && slEff > 0 && refPx ? riskWithFees(units, slEff, tick, refPx, feeRate) : undefined;
+  const verdict = dayCheck(limits, daySt, equity, Date.now(), nextRisk);
+  const dayPnl = equity - daySt.startEquity;
+  /** True (and says why) when a NEW entry is not allowed today. */
+  const dayBlocked = (): boolean => {
+    if (!limitsOn || verdict.ok) return false;
+    act({ ok: false, message: verdict.message });
+    return true;
+  };
+  const countEntry = (r: Result) => {
+    if (r.ok) saveDay({ trades: daySt.trades + 1 });
+    return r;
+  };
+  // A losing close starts the cooldown (open P&L just before the position went flat).
+  const lastOpen = useRef({ qty: 0, pnl: 0, sym: '' });
+  useEffect(() => {
+    const prev = lastOpen.current;
+    if (prev.qty !== 0 && pos.qty === 0 && prev.sym === (m.info?.symbol ?? '') && prev.pnl < 0) saveDay({ lastLossAt: Date.now() });
+    lastOpen.current = { qty: pos.qty, pnl: openPnl, sym: m.info?.symbol ?? '' };
+  });
+  // Close everything at the daily loss limit (optional; owner OK 2026-10-12). Once per day.
+  useEffect(() => {
+    if (!s.closeAtDayLimit || !dayRec || dayRec.limitClosed || !dayLimitHit(limits, daySt, equity)) return;
+    saveDay({ limitClosed: true });
+    if (live) {
+      for (const p of L.positions) {
+        const info = m.table?.resolve(p.symbol);
+        if (info) actAsync(L.flatten(info).then((r) => ({ ...r, message: `daily loss limit: ${r.message}` })));
+      }
+    } else for (const b of m.brokers.values()) if (b.position.qty !== 0) act({ ...b.flatten(), message: 'daily loss limit: paper position closed' });
+  });
+  // Close 5 min before Vest's weekend lock (optional; owner OK 2026-10-12). Crypto has no lock.
+  useEffect(() => {
+    if (!s.weekendClose) return;
+    const hours = new Map<number, { at: number; closeAt?: number }>();
+    const done = new Set<string>();
+    const check = async () => {
+      const now = Date.now();
+      const held = live ? L.positions.map((p) => p.symbol) : [...m.brokers].filter(([, b]) => b.position.qty !== 0).map(([k]) => k);
+      for (const sym of new Set(held)) {
+        const info = m.table?.resolve(sym);
+        const aid = info?.assetId;
+        if (!info || aid === undefined) continue;
+        let h = hours.get(aid);
+        if (!h || now - h.at > 15 * 60_000) {
+          const end = now + 72 * 3600_000;
+          h = { at: now, closeAt: weekendCloseAt(await fetchMarketHours(aid, now - 60_000, end), now, end) };
+          hours.set(aid, h);
+        }
+        const key = `${sym}@${h.closeAt}`;
+        if (h.closeAt === undefined || now < h.closeAt || done.has(key)) continue;
+        done.add(key);
+        if (live) actAsync(L.flatten(info).then((r) => ({ ...r, message: `weekend close: ${r.message}` })));
+        else {
+          const b = m.brokers.get(sym);
+          if (b) act({ ...b.flatten(), message: `weekend close: paper ${info.displaySymbol ?? sym} closed` });
+        }
+      }
+    };
+    void check().catch(() => {});
+    const h = setInterval(() => void check().catch(() => {}), 30_000);
+    return () => clearInterval(h);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [s.weekendClose, live]);
+  useEffect(() => {
+    L.stopGuardOn = s.stopGuard;
+  }, [L, s.stopGuard]);
+
+  /** Close half: an exit, never gated. */
+  const closeHalfNow = () => {
+    const c = m.marketCtx();
+    if (live) {
+      if (c) actAsync(L.closePart(c.info, 0.5));
+    } else if (broker) act(broker.closePart(0.5));
+  };
+
+  // ── Preview: the would-be bracket on the ladder while flat. Nothing is sent. ──
+  const pvLong = s.preview === 'long';
+  const pvRef = s.preview === 'off' ? undefined : pvLong ? ask : bid;
+  const pvChips: WorkingOrder[] = [];
+  if (pvRef !== undefined && pos.qty === 0 && s.bracketsOn && units > 0) {
+    const exit: Side = pvLong ? 'sell' : 'buy';
+    const dir = pvLong ? 1 : -1;
+    if (slEff > 0) pvChips.push({ id: -3000, side: exit, type: 'stop', priceTicks: pvRef - dir * slEff, qty: units, reduceOnly: true, leg: 'sl' });
+    const sp = splitTargets(units, sizeDec, targets);
+    if (sp.ok) sp.legs.forEach((l, i) => pvChips.push({ id: -3001 - i, side: exit, type: 'limit', priceTicks: pvRef + dir * l.ticks, qty: l.qty, reduceOnly: true, leg: 'tp' }));
+  }
+  /** A preview leg dropped on row `t`: the stop sets the stop distance (size follows in $ risk mode,
+   * so the risk stays the same); a target sets its distance. */
+  const previewDrop = (id: number, t: number) => {
+    if (pvRef === undefined) return;
+    const dir = pvLong ? 1 : -1;
+    const dist = (t - pvRef) * dir;
+    if (id === -3000) {
+      if (dist >= 0) return act({ ok: false, message: `the stop must be ${pvLong ? 'below' : 'above'} the entry` });
+      if (atrMode) setSlOverride(-dist);
+      else update({ slTicks: -dist });
+      return;
+    }
+    if (dist <= 0) return act({ ok: false, message: `a target must be ${pvLong ? 'above' : 'below'} the entry` });
+    const i = -3001 - id;
+    if (atrMode) {
+      const tpR = [...s.tpR];
+      tpR[i] = slEff > 0 ? Math.round((dist / slEff) * 10) / 10 : 0;
+      update({ tpR });
+    } else update(i === 0 ? { tpTicks: dist } : i === 1 ? { tp2Ticks: dist } : { tp3Ticks: dist });
   };
 
   const rows: number[] = [];
@@ -620,6 +775,7 @@ export function App() {
   if (ind.fpOn && ind.fpLines) for (const z of stackZones(imb.buyStack, imb.sellStack, g)) addLine(z.ticks, z.side === 'buy' ? 'zone-buy' : 'zone-sell', `STACK ${z.side === 'buy' ? '▲' : '▼'}${z.rows}`);
   const markers = [
     ...orders.map((o) => ({ label: o.leg ? o.leg.toUpperCase() : o.type === 'stop' ? 'STP' : 'LMT', ticks: o.priceTicks })),
+    ...pvChips.map((o) => ({ label: `${o.leg === 'sl' ? 'SL' : 'TP'} ◇ preview`, ticks: o.priceTicks })),
     ...(failRow !== undefined ? [{ label: 'FAIL', ticks: failRow }] : []),
     ...(st1 ? [{ label: `ST1 ${st1.dir === 'up' ? 'support' : 'resistance'}`, ticks: st1.ticks }] : []),
     ...(vwapT !== undefined ? [{ label: 'VWAP', ticks: Math.round(vwapT) }] : []),
@@ -652,8 +808,8 @@ export function App() {
   const orderChip = (o: WorkingOrder) => (
     <span
       key={o.id}
-      className={`chip ${o.leg ?? o.type} ${o.side} ${live && o.id <= -2000 ? 'heldstop' : ''}`}
-      title={`${o.leg ? o.leg.toUpperCase() + ' ' : ''}${o.side} ${o.type} ${o.qty} — ${live ? (o.id <= -2000 ? 'panel-held STOP (Vest does not see it until it fires a market order): click to cancel, drag to move' : o.leg ? 'on Vest: drag to move' : 'on Vest: click to cancel, drag to move') : 'click to cancel, drag to move'}`}
+      className={`chip ${o.leg ?? o.type} ${o.side} ${o.id <= -3000 ? 'preview' : live && o.id <= -2000 ? 'heldstop' : ''}`}
+      title={o.id <= -3000 ? `PREVIEW ${o.leg === 'sl' ? 'stop' : 'target'} — nothing is sent. Drag it to change the distance${o.leg === 'sl' ? ' (in $ risk sizing the size follows, so the risk stays the same)' : ''}.` : `${o.leg ? o.leg.toUpperCase() + ' ' : ''}${o.side} ${o.type} ${o.qty} — ${live ? (o.id <= -2000 ? 'panel-held STOP (Vest does not see it until it fires a market order): click to cancel, drag to move' : o.leg ? 'on Vest: drag to move' : 'on Vest: click to cancel, drag to move') : 'click to cancel, drag to move'}`}
       onPointerDown={(e) => {
         e.stopPropagation();
         setDrag({ id: o.id, from: o.priceTicks });
@@ -662,7 +818,8 @@ export function App() {
       // reach the row underneath, which would place a new order.
       onClick={(e) => e.stopPropagation()}
     >
-      {o.leg ? o.leg.toUpperCase() : o.type === 'stop' ? 'STP' : 'LMT'} {o.qty}
+      {o.id <= -3000 ? '◇' : ''}
+      {o.leg ? o.leg.toUpperCase() : o.type === 'stop' ? 'STP' : 'LMT'} {o.id <= -3000 && refPx ? (o.leg === 'sl' ? `−$${riskWithFees(units, slEff, tick, refPx, feeRate).toFixed(2)}` : `+$${(o.qty * Math.abs(o.priceTicks - (pvRef ?? o.priceTicks)) * tick).toFixed(2)}`) : o.qty}
     </span>
   );
 
@@ -685,7 +842,7 @@ export function App() {
   const rtSell = book && units > 0 ? roundTrip(book.bids, book.asks, 'sell', units, tick, takerFee) : undefined;
   const breakEven = rtBuy && rtSell ? Math.max(rtBuy.breakEvenPts, rtSell.breakEvenPts) : (rtBuy ?? rtSell)?.breakEvenPts;
   const gate = spread !== undefined ? spreadGate(spread, m.spreadWin.quantile(0.5), p90) : undefined;
-  const tpPts = s.bracketsOn ? s.tpTicks * tick : 0;
+  const tpPts = s.bracketsOn ? tpEff[0]! * tick : 0;
   const edge = edgeRatio(tpPts, breakEven);
   const fillTxt = (r: typeof rtBuy) => (r ? (r.entry.avgTicks * tick).toFixed(dec) : '—');
 
@@ -744,6 +901,14 @@ export function App() {
         {live && L.stops.size > 0 && (
           <span className="stopsbadge" title="panel-held stops: they fire a MARKET entry when a trade prints at or through them, only while this window is open and LIVE">
             ⚡ {L.stops.size} stop{L.stops.size > 1 ? 's' : ''} armed
+          </span>
+        )}
+        {limitsOn && (
+          <span className={`daychip ${verdict.ok ? '' : 'locked'}`} title={verdict.ok ? 'Protect my day (settings)' : verdict.message}>
+            day <b className={pnlClass(dayPnl)}>{fmtUsd(dayPnl)}</b>
+            {limits.lossUsd > 0 ? ` / −$${limits.lossUsd}` : ''}
+            {limits.maxTrades > 0 ? ` · ${daySt.trades}/${limits.maxTrades} trades` : ''}
+            {verdict.ok ? '' : ' · LOCKED'}
           </span>
         )}
         {s.showTrend && (
@@ -898,6 +1063,42 @@ export function App() {
             LIVE size cap u (0 = off)
             <input type="number" min={0} step={0.001} value={s.liveSizeCap} onChange={(e) => update({ liveSizeCap: Math.max(0, Number(e.target.value) || 0) })} />
           </label>
+          <label title="the one-click $ risk buttons next to the size box">
+            risk buttons $
+            <input type="text" className="wide" defaultValue={s.riskPresets.join(', ')} onBlur={(e) => update({ riskPresets: e.target.value.split(/[\s,]+/).map(Number).filter((x) => x > 0).slice(0, 6) })} />
+          </label>
+          <fieldset className="protect">
+            <legend>Protect my day (0 = off) — new entries only; FLATTEN and CANCEL are never locked</legend>
+            <label title="lock new entries once the day (from 17:00 Chicago) is down this much">
+              daily loss $
+              <input type="number" min={0} step={1} value={s.dayLossUsd} onChange={(e) => update({ dayLossUsd: Math.max(0, Number(e.target.value) || 0) })} />
+            </label>
+            <label title="when the daily loss limit is hit, close every open position at market (the panel acts without a click)">
+              <input type="checkbox" checked={s.closeAtDayLimit} disabled={!s.dayLossUsd} onChange={(e) => update({ closeAtDayLimit: e.target.checked })} /> also close open trades
+            </label>
+            <label>
+              max trades / day
+              <select value={s.maxTradesDay} onChange={(e) => update({ maxTradesDay: Number(e.target.value) })}>
+                {[0, 3, 5, 10].map((v) => (
+                  <option key={v} value={v}>
+                    {v || 'off'}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              cooldown after a loss
+              <select value={s.cooldownSec} onChange={(e) => update({ cooldownSec: Number(e.target.value) })}>
+                <option value={0}>off</option>
+                <option value={30}>30 s</option>
+                <option value={60}>1 min</option>
+                <option value={300}>5 min</option>
+              </select>
+            </label>
+            <label title="close a position 5 min before Vest's weekend lock (crypto has none); the panel acts without a click, and only while this window is open">
+              <input type="checkbox" checked={s.weekendClose} onChange={(e) => update({ weekendClose: e.target.checked })} /> close before the weekend lock
+            </label>
+          </fieldset>
           <details className="indset">
             <summary>Indicators — {m.info?.displaySymbol ?? m.info?.symbol ?? ''} (saved per instrument)</summary>
             <fieldset>
@@ -1072,7 +1273,7 @@ export function App() {
         )}
       </section>
 
-      {pos.qty !== 0 && <BracketBar long={pos.qty > 0} qty={Math.abs(pos.qty)} avgTicks={pos.avgTicks} nowTicks={pos.qty > 0 ? bid : ask} legs={orders.filter((o) => o.leg)} fail={failRow} tick={tick} />}
+      {pos.qty !== 0 && <BracketBar long={pos.qty > 0} qty={Math.abs(pos.qty)} avgTicks={pos.avgTicks} nowTicks={pos.qty > 0 ? bid : ask} legs={orders.filter((o) => o.leg)} fail={failRow} tick={tick} fee={feeRate} roomUsd={equity - floor} />}
 
       {vestElsewhere.length > 0 && (
         <div className="exposure vest">
@@ -1168,6 +1369,11 @@ export function App() {
             ].join(' ');
             const drop = () => {
               if (!drag) return;
+              if (drag.id <= -3000) {
+                if (t !== bk(drag.from)) previewDrop(drag.id, t);
+                setDrag(null);
+                return;
+              }
               if (live) {
                 const c = m.marketCtx();
                 const same = t === bk(drag.from);
@@ -1341,16 +1547,57 @@ export function App() {
               {f * 100}%
             </button>
           ))}
-          <label className={s.bracketsOn ? '' : 'dim'}>
-            TP pts
-            <PointsInput ticks={s.tpTicks} tick={tick} onTicks={(t) => update({ tpTicks: t })} />
-            <small className="pos">{s.tpTicks && units ? `+$${(units * s.tpTicks * tick).toFixed(2)}` : ''}</small>
-          </label>
-          <label className={s.bracketsOn ? '' : 'dim'}>
-            SL pts
-            <PointsInput ticks={s.slTicks} tick={tick} onTicks={(t) => update({ slTicks: t })} />
-            <small className="neg">{s.slTicks && units ? `−$${(units * s.slTicks * tick).toFixed(2)}` : ''}</small>
-          </label>
+          {s.riskPresets.map((v) => (
+            <button
+              key={`r${v}`}
+              className={`mini ${s.sizeMode === 'risk' && s.sizeInput === v ? 'on' : ''}`}
+              title={`size so a stop-out costs $${v}, fees included`}
+              onClick={() => update({ sizeMode: 'risk', sizeInput: v })}
+            >
+              ${v}
+            </button>
+          ))}
+          {atrMode ? (
+            <label className={s.bracketsOn ? '' : 'dim'} title="TP1 as a multiple of the stop distance (R)">
+              TP1 R
+              <input type="number" min={0} step={0.5} value={s.tpR[0] ?? 0} onChange={(e) => update({ tpR: [Math.max(0, Number(e.target.value) || 0), s.tpR[1] ?? 0, s.tpR[2] ?? 0] })} />
+              <small className="pos">{tpEff[0] ? `${(tpEff[0] * tick).toFixed(dec)} pts` : ''}</small>
+            </label>
+          ) : (
+            <label className={s.bracketsOn ? '' : 'dim'}>
+              TP pts
+              <PointsInput ticks={s.tpTicks} tick={tick} onTicks={(t) => update({ tpTicks: t })} />
+              <small className="pos">{s.tpTicks && units ? `+$${(units * s.tpTicks * tick).toFixed(2)}` : ''}</small>
+            </label>
+          )}
+          {atrMode ? (
+            <label className={s.bracketsOn ? '' : 'dim'} title="stop = ATR of the 60 s candles (the ST1 engine) × this">
+              SL ATR×
+              <input type="number" min={0.25} step={0.25} value={s.atrMult} onChange={(e) => update({ atrMult: Math.max(0.25, Number(e.target.value) || 1) })} />
+              <small className="neg">{slEff ? `${(slEff * tick).toFixed(dec)} pts${slOverride !== null ? ' (dragged)' : ''}` : 'ATR warming…'}</small>
+              {slOverride !== null && (
+                <button className="mini" onClick={() => setSlOverride(null)} title="back to ATR × multiple">
+                  snap back
+                </button>
+              )}
+            </label>
+          ) : (
+            <label className={s.bracketsOn ? '' : 'dim'}>
+              SL pts
+              <PointsInput ticks={s.slTicks} tick={tick} onTicks={(t) => update({ slTicks: t })} />
+              <small className="neg">{s.slTicks && units ? `−$${(units * s.slTicks * tick).toFixed(2)}` : ''}</small>
+            </label>
+          )}
+          <button
+            className={`toggle ${atrMode ? 'on' : ''}`}
+            title="stop distance from your points, or from ATR × multiple (targets then in R)"
+            onClick={() => {
+              setSlOverride(null);
+              update({ stopMode: atrMode ? 'pts' : 'atr' });
+            }}
+          >
+            STOP {atrMode ? 'ATR' : 'PTS'}
+          </button>
           <label>
             B/E + pts
             <PointsInput ticks={s.beOffset} tick={tick} signed onTicks={(t) => update({ beOffset: t })} />
@@ -1367,14 +1614,29 @@ export function App() {
           </button>
         </div>
         <div className="fields more">
-          <label className={s.bracketsOn ? '' : 'dim'} title="second target, further than TP1 (0 = off)">
-            TP2
-            <PointsInput ticks={s.tp2Ticks} tick={tick} onTicks={(t) => update({ tp2Ticks: t })} />
-          </label>
-          <label className={s.bracketsOn ? '' : 'dim'} title="third target, further than TP2 (0 = off)">
-            TP3
-            <PointsInput ticks={s.tp3Ticks} tick={tick} onTicks={(t) => update({ tp3Ticks: t })} />
-          </label>
+          {[1, 2].map((i) =>
+            atrMode ? (
+              <label key={i} className={s.bracketsOn ? '' : 'dim'} title={`TP${i + 1} in R (0 = off)`}>
+                TP{i + 1} R
+                <input
+                  type="number"
+                  min={0}
+                  step={0.5}
+                  value={s.tpR[i] ?? 0}
+                  onChange={(e) => {
+                    const tpR = [s.tpR[0] ?? 0, s.tpR[1] ?? 0, s.tpR[2] ?? 0];
+                    tpR[i] = Math.max(0, Number(e.target.value) || 0);
+                    update({ tpR });
+                  }}
+                />
+              </label>
+            ) : (
+              <label key={i} className={s.bracketsOn ? '' : 'dim'} title={`target ${i + 1}, further than the one before (0 = off)`}>
+                TP{i + 1}
+                <PointsInput ticks={i === 1 ? s.tp2Ticks : s.tp3Ticks} tick={tick} onTicks={(t) => update(i === 1 ? { tp2Ticks: t } : { tp3Ticks: t })} />
+              </label>
+            ),
+          )}
           {multiTp && (
             <>
               <label title="share of the size at TP1 / TP2 / TP3, in %">
@@ -1414,6 +1676,25 @@ export function App() {
               </select>
             </>
           )}
+          <button
+            className={`toggle ${s.preview !== 'off' ? 'on' : ''}`}
+            title="show the would-be stop and targets on the ladder before you enter (nothing is sent); drag the stop to change it"
+            onClick={() => update({ preview: s.preview === 'off' ? 'long' : s.preview === 'long' ? 'short' : 'off' })}
+          >
+            PREVIEW {s.preview === 'off' ? 'OFF' : s.preview === 'long' ? 'LONG' : 'SHORT'}
+          </button>
+          <label title="trailing stop: once price is this many × your risk in your favour, the stop follows the best price one risk behind and only moves your way. The panel moves it without a click (keep this window open).">
+            trail
+            <select value={s.trailStartR} onChange={(e) => update({ trailStartR: Number(e.target.value) })}>
+              <option value={0}>off</option>
+              <option value={1}>from 1R</option>
+              <option value={1.5}>from 1.5R</option>
+              <option value={2}>from 2R</option>
+            </select>
+          </label>
+          <label title="LIVE: if a Vest position loses its stop, the panel puts it back at the last price and shows a red warning (keep this window open)">
+            <input type="checkbox" checked={s.stopGuard} onChange={(e) => update({ stopGuard: e.target.checked })} /> stop guard
+          </label>
         </div>
         <div className="pretrade">
           <span>
@@ -1426,21 +1707,29 @@ export function App() {
             </span>
           )}
           <span>${units.toFixed(2)}/pt</span>
-          <span className={s.slTicks && riskUsd(units, s.slTicks, tick) > ddLeft ? 'neg' : ''}>
-            {s.bracketsOn && s.slTicks ? `risk $${riskUsd(units, s.slTicks, tick).toFixed(2)} at SL` : 'no SL'}
+          <span className={nextRisk !== undefined && nextRisk > ddLeft ? 'neg' : ''} title="loss at the stop, taker fee both ways included">
+            {nextRisk !== undefined ? `risk $${nextRisk.toFixed(2)} at SL` : 'no SL'}
           </span>
+          {limitsOn && verdict.roomUsd !== undefined && nextRisk !== undefined && nextRisk > verdict.roomUsd && verdict.roomUsd > 0 && (
+            <span className="neg">
+              only ${verdict.roomUsd.toFixed(2)} left today{' '}
+              <button className="mini" onClick={() => update({ sizeMode: 'risk', sizeInput: Math.floor(verdict.roomUsd! * 100) / 100 })}>
+                size to fit
+              </button>
+            </span>
+          )}
           {refPx && units > 0 && (
             <span>
               fail <span className="pos">L {(refPx - (equity - floor) / units).toFixed(dec)}</span> /{' '}
               <span className="neg">S {(refPx + (equity - floor) / units).toFixed(dec)}</span>
             </span>
           )}
-          {s.bracketsOn && s.slTicks > 0 && spread !== undefined && s.slTicks <= spread && (
+          {s.bracketsOn && slEff > 0 && spread !== undefined && slEff <= spread && (
             <span className="neg" title="The stop is measured from your fill. A buy fills at the ask, so a stop closer than the spread is already at or through the bid. In this paper sim it triggers on the bid; Vest's own trigger price (bid, mid or mark) is not yet confirmed.">
-              SL {(s.slTicks * tick).toFixed(dec)} ≤ spread {(spread * tick).toFixed(dec)} — stops out on entry
+              SL {(slEff * tick).toFixed(dec)} ≤ spread {(spread * tick).toFixed(dec)} — stops out on entry
             </span>
           )}
-          {s.sizeMode === 'risk' && !s.slTicks && <span className="neg">set SL points to size by risk</span>}
+          {s.sizeMode === 'risk' && !slEff && <span className="neg">{atrMode ? 'ATR still warming up — no stop yet' : 'set SL points to size by risk'}</span>}
           {s.bracketsOn && multiTp && units > 0 && (() => {
             const sp = splitTargets(units, sizeDec, targets);
             return sp.ok ? (
@@ -1519,6 +1808,9 @@ export function App() {
           </button>
           <button disabled={!pos.qty} onClick={breakevenNow}>
             B/E
+          </button>
+          <button disabled={!pos.qty} onClick={closeHalfNow} title="close half the position at market (never blocked)">
+            CLOSE HALF
           </button>
           <button disabled={!pos.qty || live} title={live ? 'reverse is paper-only for now' : undefined} onClick={reverse}>
             REVERSE

@@ -45,6 +45,18 @@ export async function fetchMarketKey(assetId: number): Promise<{ exchange?: stri
   return rows.find((x) => x.assetId === assetId)?.key;
 }
 
+/** POST /v4/market-hours — the sessions (OPEN / closed periods) of one asset between two times. */
+export async function fetchMarketHours(assetId: number, fromMs: number, toMs: number): Promise<Array<{ fromMs: number; toMs: number; state: { tradingStatus: string } }>> {
+  const r = await fetch(REST_BASE + '/v4/market-hours', {
+    method: 'POST',
+    headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+    body: JSON.stringify({ assetIds: [assetId], fromMs, toMs }),
+  });
+  if (!r.ok) throw new Error(`POST /v4/market-hours -> ${r.status}`);
+  const rows = (await r.json()) as Array<{ assetId: number; periods?: Array<{ fromMs: number; toMs: number; state: { tradingStatus: string } }> }>;
+  return rows.find((x) => x.assetId === assetId)?.periods ?? [];
+}
+
 export function fetchRecentTrades(symbol: string): Promise<TradeData[]> {
   return getJson<TradeData[]>(`/v3/trades?symbol=${encodeURIComponent(symbol)}`);
 }

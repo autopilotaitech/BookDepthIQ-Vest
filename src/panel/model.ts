@@ -216,7 +216,8 @@ export class PanelModel {
           this.feedTrend(msg.data.time, t, q, msg.data.side === 'buy');
           this.onIndicatorTrade(msg.data.time, t, q);
           this.trendLive++;
-          if (this.live.stops.size) {
+          // Panel-held stops, trailing stops and B/E after TP1 read the trade feed (LIVE only).
+          if (this.live.stops.size || this.live.mode === 'live') {
             const ctx = this.marketCtx();
             if (ctx) void this.live.onMarketTrade(t, ctx);
           }

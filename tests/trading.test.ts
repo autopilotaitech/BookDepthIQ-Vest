@@ -751,3 +751,77 @@ describe('LIVE partial targets, scale and B/E after TP1', () => {
     expect(writes(calls)[0]).toMatchObject({ method: 'PUT', path: '/v3/positions/take-profit', body: { takeProfitId: 'T2', triggerPrice: '31472.5' } });
   });
 });
+
+describe('LIVE close half, trailing stop, stop recovery', () => {
+  it('close half: Vest-ticket reduce body, half the size, never gated', async () => {
+    const { s, calls } = await liveSession(vest({ positions: [{ ...LONG_POS, quantity: '0.1' }] }));
+    const r = await s.closePart(NQ, 0.5);
+    expect(r.ok).toBe(true);
+    expect(writes(calls)[0]).toMatchObject({
+      method: 'POST',
+      path: '/v3/positions/reduce',
+      body: { positionId: 'P1', orderType: 'market', leverage: '25', quantity: '0.05', timeInForce: 'IOC', reduceOnly: true, symbol: 'NDX-USD-PERP' },
+    });
+  });
+
+  it('trailing stop: armed by the entry, moves the Vest stop once price earns it, then waits', async () => {
+    let positions: unknown[] = [];
+    const base = vest();
+    const x = await liveSession((c) => (c.path === '/v3/positions/opened' ? { body: positions } : base(c)));
+    await x.s.enter('buy', 0.001, MKT, { bracketsOn: true, tpTicks: 0, slTicks: 20, trailStartR: 1 });
+    positions = [{ ...LONG_POS, openPrice: '31451', takeProfits: [], stopLosses: [{ id: 'S1', triggerPrice: '31446' }] }];
+    x.advance(100);
+    await x.s.poll();
+    const n0 = writes(x.calls).length;
+    // +4 pts (16 ticks) < 1R (20 ticks): nothing
+    await x.s.onMarketTrade(125820, { ...MKT, bid: 125819, ask: 125821 });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(writes(x.calls)).toHaveLength(n0);
+    // +6 pts (24 ticks) ≥ 1R: stop → best − 20 ticks = 125808 = 31452
+    x.advance(1500);
+    await x.s.onMarketTrade(125828, { ...MKT, bid: 125827, ask: 125829 });
+    await new Promise((r) => setTimeout(r, 0));
+    const w = writes(x.calls).slice(n0);
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatchObject({ method: 'PUT', path: '/v3/positions/stop-loss', body: { triggerPrice: '31452', stopLossId: 'S1' } });
+  });
+
+  it('back to PAPER disarms the trailing stop', async () => {
+    const { s } = await liveSession(vest());
+    await s.enter('buy', 0.001, MKT, { bracketsOn: true, tpTicks: 0, slTicks: 20, trailStartR: 1 });
+    expect(s.trail.size).toBe(1);
+    s.goPaper();
+    expect(s.trail.size).toBe(0);
+  });
+
+  it('stop recovery: a stop that disappears is put back at its last price (only when on)', async () => {
+    let positions: unknown[] = [LONG_POS];
+    const base = vest();
+    const x = await liveSession((c) => (c.path === '/v3/positions/opened' ? { body: positions } : base(c)));
+    x.s.stopGuardOn = true;
+    await x.s.poll(); // sees S1 @ 31446
+    positions = [{ ...LONG_POS, stopLosses: [] }];
+    x.advance(1500);
+    await x.s.poll();
+    expect(writes(x.calls)).toHaveLength(0); // not confirmed yet
+    x.advance(3000);
+    await x.s.poll();
+    const w = writes(x.calls);
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatchObject({ method: 'POST', path: '/v3/positions/stop-loss', body: { positionId: 'P1', executionType: 'market', triggerPrice: '31446' } });
+    expect(x.s.stopEvent?.message).toMatch(/re-placed/);
+  });
+
+  it('stop recovery off: nothing is sent', async () => {
+    let positions: unknown[] = [LONG_POS];
+    const base = vest();
+    const x = await liveSession((c) => (c.path === '/v3/positions/opened' ? { body: positions } : base(c)));
+    await x.s.poll();
+    positions = [{ ...LONG_POS, stopLosses: [] }];
+    for (let k = 0; k < 4; k++) {
+      x.advance(3000);
+      await x.s.poll();
+    }
+    expect(writes(x.calls)).toHaveLength(0);
+  });
+});

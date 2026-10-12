@@ -51,7 +51,7 @@ b { font-weight: 600; }
 .fields label.dim { opacity: 0.4; }
 .fields input { width: 64px; background: var(--bg); border: 1px solid var(--line); padding: 2px 4px; }
 .fields small { color: var(--muted); }
-.buttons { display: grid; grid-template-columns: repeat(6, 1fr); gap: 4px; margin-top: 6px; }
+.buttons { display: grid; grid-template-columns: repeat(7, 1fr); gap: 4px; margin-top: 6px; }
 .buttons button, .toggle, .mini {
   background: #1a2130; border: 1px solid var(--line); padding: 7px 4px; cursor: pointer; border-radius: 3px; font-weight: 600;
 }
@@ -105,7 +105,7 @@ b { font-weight: 600; }
 
 @media (max-width: 640px) {
   .side { display: none; }
-  .buttons { grid-template-columns: repeat(3, 1fr); }
+  .buttons { grid-template-columns: repeat(4, 1fr); }
 }
 
 .account { padding: 6px 8px; border-bottom: 1px solid var(--line); }
@@ -446,3 +446,11 @@ b { font-weight: 600; }
 .roombar i.mid { background: color-mix(in srgb, var(--warn) 55%, transparent); }
 .roombar i.low { background: color-mix(in srgb, var(--neg) 60%, transparent); }
 .roombar span { position: relative; padding-left: 6px; font-size: 10px; line-height: 14px; color: var(--text); }
+
+/* v1.6 — preview chips, day chip */
+.chip.preview { opacity: 0.6; border-style: dashed !important; }
+.daychip { font-size: 11px; padding: 1px 6px; border: 1px solid var(--line); border-radius: 3px; color: var(--muted); }
+.daychip.locked { border-color: var(--neg); color: var(--neg); }
+.mini.on { border-color: var(--warn); color: var(--warn); }
+.protect { border: 1px solid var(--line); margin: 6px 0; padding: 4px 8px; display: flex; flex-wrap: wrap; gap: 10px; }
+.protect legend { color: var(--muted); font-size: 11px; }

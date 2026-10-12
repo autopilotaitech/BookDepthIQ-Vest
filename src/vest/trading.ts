@@ -10,6 +10,7 @@ import {
   moveTargetBody,
   openLimitBody,
   openMarketBody,
+  reduceMarketBody,
   readAccountToken,
   readAccounts,
   readBalances,
@@ -133,6 +134,9 @@ export class VestTrading {
   }
   async close(symbol: string, positionId: string, leverage: string): Promise<unknown> {
     return this.call('POST', '/v3/positions/close', closeBody(symbol, positionId, leverage), 'account', 'write', true);
+  }
+  async reduce(symbol: string, positionId: string, quantity: string, leverage: string): Promise<unknown> {
+    return this.call('POST', '/v3/positions/reduce', reduceMarketBody(symbol, positionId, quantity, leverage), 'account', 'write', true);
   }
   async moveStop(positionId: string, triggerPrice: string, stopLossId: string): Promise<unknown> {
     return this.call('PUT', '/v3/positions/stop-loss', moveStopBody(positionId, triggerPrice, stopLossId), 'account', 'write', true);

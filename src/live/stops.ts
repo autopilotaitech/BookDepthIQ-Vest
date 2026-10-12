@@ -21,6 +21,8 @@ export interface ArmedStop {
   bracketsOn: boolean;
   tpTicks: number;
   slTicks: number;
+  /** Trailing stop start (× risk) for the position it opens; 0/absent = off. */
+  trailStartR?: number;
   armedAt: number;
 }
 

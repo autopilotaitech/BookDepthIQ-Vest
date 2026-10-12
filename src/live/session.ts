@@ -4,6 +4,7 @@ import { StopBook, type ArmedStop } from './stops.js';
 import { VestTrading, type FetchLike } from '../vest/trading.js';
 import {
   claimsExpMs,
+  decimalString,
   decodeJwtClaims,
   priceString,
   qtyString,
@@ -14,6 +15,7 @@ import {
   type RestingOrder,
 } from '../vest/tradingShapes.js';
 import type { SymbolInfo } from '../vest/types.js';
+import { StopGuard, TrailBook } from './manage.js';
 import { BeWatch, scaleOrders, splitTargets, type Piece, type SkewDir, type Target } from './targets.js';
 import { DEFAULT_LIVE_SIZE_CAP, bracketTicks, breakevenTicks, liveEntryCheck, reanchorPlan, resolveLeverage, type Check } from './rules.js';
 
@@ -25,9 +27,9 @@ import { DEFAULT_LIVE_SIZE_CAP, bracketTicks, breakevenTicks, liveEntryCheck, re
 // - Entries go through liveEntryCheck. FLATTEN and CANCEL ALL go through NOTHING: not the mode, not
 //   the guard, not a failed read, not an expiring token.
 // - No order is sent except from a user action (click or armed hotkey), plus the one spec-mandated
-//   follow-up (re-anchoring the legs of the entry the user just sent) and the two owner-approved
-//   exceptions: panel-held stop entries (stops.ts, 2026-10-09) and B/E after TP1 (targets.ts,
-//   2026-10-11).
+//   follow-up (re-anchoring the legs of the entry the user just sent) and the owner-approved
+//   exceptions: panel-held stop entries (stops.ts, 2026-10-09), B/E after TP1 (targets.ts,
+//   2026-10-11), trailing stop and stop recovery (manage.ts, 2026-10-12).
 
 export type LiveMode = 'paper' | 'live';
 
@@ -47,6 +49,8 @@ export interface BracketCtx {
   /** With 2+ targets: move the stop to entry ± beOffset once TP1 fills (owner-approved 2026-10-11). */
   beAfterTp1?: boolean;
   beOffset?: number;
+  /** Trailing stop: start once price is this many × risk in your favour (0/absent = off). */
+  trailStartR?: number;
 }
 
 /** Bracket legs in ticks for one entry: a stop for the whole size, then one target or several. */
@@ -124,6 +128,15 @@ export class LiveSession {
   readonly beWatch = new BeWatch();
   /** Latest market context from the trade feed (B/E after TP1 needs the bid/ask). */
   private lastMkt: { m: MarketCtx; at: number } | null = null;
+  /** Trailing stops by symbol (manage.ts). */
+  readonly trail = new TrailBook();
+  private trailSeen = new Set<string>();
+  private trailBusy = false;
+  private trailAt = 0;
+  private trailSent = new Map<string, number>();
+  /** Stop recovery: re-place a stop that disappeared from a Vest position (setting, off by default). */
+  stopGuardOn = false;
+  private readonly guard = new StopGuard();
   private readonly setTimer: (fn: () => void, ms: number) => unknown;
   private readonly clearTimer: (h: unknown) => void;
 
@@ -362,6 +375,7 @@ export class LiveSession {
     try {
       const r = await this.api.open(input);
       this.armBe(legs, m, br);
+      this.armTrail(legs, m, br);
       // Partial targets are priced from the expected fill and not re-anchored (tpTicks 0): a PUT
       // has no quantity, so moving one could turn a partial target into a full one.
       this.entry = {
@@ -430,6 +444,7 @@ export class LiveSession {
     try {
       const r = await this.api.openLimit(input);
       this.armBe(legs, m, br);
+      this.armTrail(legs, m, br);
       if (r.orderId) this.orderLegs.set(r.orderId, legs);
       return ok(`LIMIT ${side.toUpperCase()} ${input.quantity} @ ${input.price} sent to Vest${r.orderId ? ` — order ${r.orderId}` : ''}`);
     } catch (e) {
@@ -597,6 +612,7 @@ export class LiveSession {
     const disarmed = this.stops.clear(sym);
     if (disarmed) out.push(`disarmed ${disarmed} stop(s)`);
     if (this.beWatch.clear(sym)) out.push('B/E after TP1 off');
+    if (this.trail.clear(sym)) out.push('trailing stop off');
     const c = await this.cancelResting(sym);
     good = good && c.ok;
     out.push(c.message);
@@ -608,6 +624,7 @@ export class LiveSession {
   /** Cancel resting orders (on `symbol`, or every one when omitted). NEVER gated. */
   async cancelAll(symbol?: string): Promise<Check> {
     this.beWatch.clear(symbol);
+    this.trail.clear(symbol);
     const disarmed = this.stops.clear(symbol);
     const r = await this.cancelResting(symbol);
     this.kick(0);
@@ -622,7 +639,7 @@ export class LiveSession {
     if (!this.tokenOk()) return no(`no Vest login: ${this.loginProblem()}`);
     const f = 10 ** m.info.sizeDecimals;
     const r = this.stops.arm(
-      { symbol: m.info.symbol, side, ticks, units: Math.round(units * f) / f, bracketsOn: br.bracketsOn, tpTicks: br.tpTicks, slTicks: br.slTicks, armedAt: this.deps.now() },
+      { symbol: m.info.symbol, side, ticks, units: Math.round(units * f) / f, bracketsOn: br.bracketsOn, tpTicks: br.tpTicks, slTicks: br.slTicks, trailStartR: br.trailStartR, armedAt: this.deps.now() },
       m.bid,
       m.ask,
     );
@@ -649,8 +666,9 @@ export class LiveSession {
   disarmStops(reason: string): void {
     const n = this.stops.clear();
     const be = this.beWatch.clear();
-    if (!n && !be) return;
-    const what = [n ? `${n} stop(s)` : '', be ? 'B/E after TP1' : ''].filter(Boolean).join(' + ');
+    const tr = this.trail.clear();
+    if (!n && !be && !tr) return;
+    const what = [n ? `${n} stop(s)` : '', be ? 'B/E after TP1' : '', tr ? 'trailing stop' : ''].filter(Boolean).join(' + ');
     this.write(`! ${what} DISARMED: ${reason}`);
     this.stopEvent = { ok: false, message: `${what} disarmed — ${reason}`, at: this.deps.now() };
     this.deps.onChange();
@@ -662,6 +680,7 @@ export class LiveSession {
    */
   async onMarketTrade(priceTicks: number, m: MarketCtx): Promise<void> {
     this.lastMkt = { m, at: this.deps.now() };
+    if (this.trail.size) void this.trailOnTrade(priceTicks, m); // never holds up a stop entry
     if (this.stops.size === 0) return;
     if (this.mode !== 'live') return this.disarmStops('not in LIVE');
     if (!this.tokenOk()) return this.disarmStops('Vest login expired');
@@ -669,7 +688,7 @@ export class LiveSession {
     for (const s of fired) {
       const px = priceString(s.ticks, m.tick, m.info.priceDecimals);
       this.write(`⚡ ${s.side.toUpperCase()} STOP @ ${px} hit (trade ${priceString(priceTicks, m.tick, m.info.priceDecimals)}) — sending MARKET ${s.units}`);
-      const r = await this.enter(s.side, s.units, m, { bracketsOn: s.bracketsOn, tpTicks: s.tpTicks, slTicks: s.slTicks });
+      const r = await this.enter(s.side, s.units, m, { bracketsOn: s.bracketsOn, tpTicks: s.tpTicks, slTicks: s.slTicks, trailStartR: s.trailStartR });
       this.stopEvent = { ok: r.ok, message: `STOP @ ${px}: ${r.message}`, at: this.deps.now() };
       this.write(`${r.ok ? '✓' : '✗'} STOP @ ${px}: ${r.message}`);
       this.deps.onChange();
@@ -782,6 +801,100 @@ export class LiveSession {
     this.deps.onChange();
   }
 
+  // ───────────── close half, trailing stop, stop recovery ─────────────
+
+  /**
+   * Close `fraction` of the position on `info`'s symbol at market (POST /v3/positions/reduce, the
+   * request Vest's own ticket uses). An exit: NEVER gated, works in either mode.
+   */
+  async closePart(info: SymbolInfo, fraction: number): Promise<Check> {
+    const p = this.positionFor(info.symbol);
+    if (!p) return no('flat on Vest — nothing to close');
+    const f = 10 ** info.sizeDecimals;
+    const q = Math.floor(Math.abs(p.qty) * fraction * f + 1e-9) / f;
+    if (!(q > 0) || q >= Math.abs(p.qty)) return no(`${Math.abs(p.qty)} is too small to split — use FLATTEN`);
+    const qty = qtyString(q, info.sizeDecimals);
+    try {
+      await this.api.reduce(info.symbol, p.positionId, qty, String(this.leverageFor(info)));
+      return ok(`closed ${qty} of ${Math.abs(p.qty)} at market`);
+    } catch (e) {
+      return no(`close ${qty} failed: ${(e as Error).message}`);
+    } finally {
+      this.kick(0);
+    }
+  }
+
+  private armTrail(l: Legs, m: MarketCtx, br: BracketCtx): void {
+    const start = br.trailStartR ?? 0;
+    if (!(start > 0) || l.sl === undefined || !(br.slTicks > 0)) return;
+    this.trail.arm(m.info.symbol, br.slTicks, start);
+    this.trailSeen.delete(m.info.symbol);
+    this.trailSent.delete(m.info.symbol);
+    this.write(`⚡ trailing stop armed on ${m.info.symbol}: starts at ${start}R, keeps 1R (${br.slTicks} ticks) behind the best price (keep this window open)`);
+  }
+
+  /** A trade on the shown market: move its trailing stop if the best price has earned it. */
+  private async trailOnTrade(priceTicks: number, m: MarketCtx): Promise<void> {
+    const sym = m.info.symbol;
+    if (!this.trail.has(sym) || this.mode !== 'live') return;
+    const p = this.positionFor(sym);
+    if (!p) return; // a limit entry may not have filled yet
+    this.trailSeen.add(sym);
+    const sl = p.stopLosses[0];
+    const cur = sl ? Math.round(sl.triggerPrice / m.tick) : undefined;
+    const long = p.qty > 0;
+    const want = this.trail.onTrade(sym, long, p.openPrice / m.tick, priceTicks, cur);
+    const now = this.deps.now();
+    if (want === undefined || !sl || this.trailBusy || now - this.trailAt < 1000 || this.trailSent.get(sym) === want) return;
+    // A stop must rest on the safe side of the market.
+    if (long ? m.bid === undefined || want >= m.bid : m.ask === undefined || want <= m.ask) return;
+    this.trailBusy = true;
+    this.trailAt = now;
+    const px = priceString(want, m.tick, m.info.priceDecimals);
+    try {
+      await this.api.moveStop(p.positionId, px, sl.id);
+      this.trailSent.set(sym, want);
+      this.write(`⚡ trailing stop → ${px}`);
+    } catch (e) {
+      this.write(`✗ trailing stop move to ${px} failed: ${(e as Error).message}`);
+    } finally {
+      this.trailBusy = false;
+      this.kick(0);
+    }
+  }
+
+  /** A trailed position that has closed ends its trail. */
+  private endTrails(): void {
+    for (const sym of [...this.trailSeen]) {
+      if (this.positionFor(sym)) continue;
+      this.trailSeen.delete(sym);
+      if (this.trail.clear(sym)) this.write(`trailing stop on ${sym}: position closed — trail ended`);
+    }
+  }
+
+  /** Stop recovery: a stop that vanished from a Vest position is put back at its last price. */
+  private async guardStops(): Promise<void> {
+    if (!this.stopGuardOn || this.mode !== 'live' || !this.tokenOk()) return;
+    const redo = this.guard.check(
+      this.positions.map((p) => ({ positionId: p.positionId, stop: p.stopLosses[0]?.triggerPrice })),
+      this.deps.now(),
+    );
+    for (const r of redo) {
+      const px = decimalString(r.stop, 10);
+      this.write(`! STOP MISSING on position ${r.positionId} — re-placing it at ${px}`);
+      let res: Check;
+      try {
+        await this.api.addStop(r.positionId, px);
+        res = ok(`stop was missing — re-placed at ${px}`);
+      } catch (e) {
+        res = no(`STOP MISSING — re-place at ${px} failed: ${(e as Error).message}. Set a stop or FLATTEN`);
+      }
+      this.stopEvent = { ...res, at: this.deps.now() };
+      this.write(`${res.ok ? '✓' : '✗'} ${res.message}`);
+      this.kick(0);
+    }
+  }
+
   private async cancelResting(symbol?: string): Promise<Check> {
     let orders = this.orders;
     try {
@@ -823,6 +936,8 @@ export class LiveSession {
       }
       await this.settleEntry(started);
       await this.checkBeWatch();
+      this.endTrails();
+      await this.guardStops();
     } catch (e) {
       this.pollError = (e as Error).message;
       if ((e as { status?: number }).status === 429) this.pollMs = Math.min(this.pollMs * 2, MAX_POLL_MS);

@@ -249,3 +249,32 @@ describe('partial targets and B/E after TP1 (paper)', () => {
     expect(b.orders.find((o) => o.leg === 'sl')!.priceTicks).toBe(98);
   });
 });
+
+describe('close half and trailing stop (paper)', () => {
+  it('close half: half at market, legs shrink, furthest targets give way first', () => {
+    const b = new PaperBroker(CFG);
+    b.bracket = { enabled: true, tpTicks: 4, slTicks: 4, targets: [{ ticks: 4, pct: 50 }, { ticks: 8, pct: 50 }] };
+    b.onBook(book(100, 102));
+    b.marketOrder('buy', 1);
+    expect(b.closePart(0.5).ok).toBe(true);
+    expect(b.position.qty).toBe(0.5);
+    expect(b.orders.find((o) => o.leg === 'sl')!.qty).toBe(0.5);
+    const tps = b.orders.filter((o) => o.leg === 'tp');
+    expect(tps.reduce((a, o) => a + o.qty, 0)).toBeCloseTo(0.5);
+    expect(tps.map((o) => o.priceTicks)).toEqual([106]);
+    expect(new PaperBroker(CFG).closePart(0.5).ok).toBe(false);
+  });
+
+  it('trail from 1R: the stop follows the bid one risk behind, never back', () => {
+    const b = new PaperBroker(CFG);
+    b.bracket = { enabled: true, tpTicks: 0, slTicks: 4, trailStartR: 1 };
+    b.onBook(book(100, 102));
+    b.marketOrder('buy', 1); // avg 102, SL 98
+    b.onBook(book(105, 106)); // bid 105: +3 < 4 → no move
+    expect(b.orders.find((o) => o.leg === 'sl')!.priceTicks).toBe(98);
+    b.onBook(book(108, 109)); // bid 108: +6 ≥ 4 → stop 104
+    expect(b.orders.find((o) => o.leg === 'sl')!.priceTicks).toBe(104);
+    b.onBook(book(106, 107)); // pullback: stays
+    expect(b.orders.find((o) => o.leg === 'sl')!.priceTicks).toBe(104);
+  });
+});

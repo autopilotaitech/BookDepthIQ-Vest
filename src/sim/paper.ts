@@ -1,5 +1,6 @@
 import { bestAsk, bestBid, type Book } from '../book/book.js';
 import { splitTargets, type Target } from '../live/targets.js';
+import { trailTarget } from '../live/manage.js';
 
 // LOCAL paper broker. Fills against Vest's live quoted book in this process only — it has no
 // network access and nothing it does ever reaches Vest. It exists so the execution UI can be
@@ -50,6 +51,8 @@ export interface BracketSettings {
   /** With partial targets: stop to entry ± beOffset once TP1 fills. */
   beAfterTp1?: boolean;
   beOffset?: number;
+  /** Trailing stop: starts at this many × risk in your favour, keeps 1 risk behind. 0 = off. */
+  trailStartR?: number;
 }
 
 export interface PaperConfig {
@@ -83,6 +86,9 @@ export class PaperBroker {
   private book: Book | null = null;
   /** B/E after TP1 already done for the current position. */
   private beDone = false;
+  /** Trailing stop for the current position: risk in ticks at entry, best exit price since. */
+  private trailRisk = 0;
+  private trailBest: number | undefined;
   private nextOrderId = 1;
   private nextFillId = 1;
 
@@ -93,6 +99,7 @@ export class PaperBroker {
   onBook(book: Book): void {
     this.book = book;
     this.match();
+    if (this.trailStep()) this.match();
   }
 
   get hasBook(): boolean {
@@ -153,6 +160,31 @@ export class PaperBroker {
     o.priceTicks = priceTicks;
     this.match(now);
     return ok(`moved ${orderId} to ${this.px(priceTicks)}`);
+  }
+
+  /** Close part of the position at market; protective legs shrink to what is left. Never blocked. */
+  closePart(fraction: number, now = Date.now()): Result {
+    const q = this.position.qty;
+    if (q === 0) return refuse('flat — nothing to close');
+    if (!this.hasBook) return refuse('no book yet');
+    const f = 10 ** this.cfg.sizeDecimals;
+    const part = Math.floor(Math.abs(q) * fraction * f + 1e-9) / f;
+    if (!(part > 0) || part >= Math.abs(q)) return refuse(`${Math.abs(q)} is too small to split — use FLATTEN`);
+    const fill = this.executeMarket(q > 0 ? 'sell' : 'buy', part, null, now, 'close part');
+    if (!fill) return refuse('book too thin to fill');
+    const left = Math.abs(this.position.qty);
+    for (const o of this.orders) if (o.reduceOnly) o.qty = Math.min(o.qty, left);
+    // Partial targets: drop the furthest ones until the targets fit what is left.
+    let tpSum = this.orders.filter((o) => o.leg === 'tp').reduce((a, o) => a + o.qty, 0);
+    const tps = this.orders.filter((o) => o.leg === 'tp').sort((a, b) => Math.abs(b.priceTicks - this.position.avgTicks) - Math.abs(a.priceTicks - this.position.avgTicks));
+    for (const o of tps) {
+      if (tpSum <= left + 1e-12) break;
+      const cut = Math.min(o.qty, tpSum - left);
+      o.qty = Math.round((o.qty - cut) * f) / f;
+      tpSum -= cut;
+    }
+    this.orders = this.orders.filter((o) => !(o.leg === 'tp' && o.qty <= 0));
+    return ok(`closed ${part} @ ${this.px(fill.priceTicks)}`);
   }
 
   cancelAll(): Result {
@@ -341,7 +373,10 @@ export class PaperBroker {
     if (this.position.qty === before) return;
     this.dropProtectiveLegs();
     this.beDone = false;
+    this.trailRisk = 0;
+    this.trailBest = undefined;
     if (this.position.qty === 0 || !this.bracket.enabled) return;
+    if ((this.bracket.trailStartR ?? 0) > 0 && this.bracket.slTicks > 0) this.trailRisk = this.bracket.slTicks;
     const long = this.position.qty > 0;
     const qty = Math.abs(this.position.qty);
     const avg = this.position.avgTicks;
@@ -381,6 +416,23 @@ export class PaperBroker {
     const sl = this.orders.find((o) => o.leg === 'sl');
     if (sl) sl.priceTicks = stop;
     else this.orders.push({ id: this.nextOrderId++, side: long ? 'sell' : 'buy', type: 'stop', priceTicks: stop, qty: left, reduceOnly: true, leg: 'sl' });
+  }
+
+  /** Trailing stop: follow the best exit price at one risk behind. True if the stop moved. */
+  private trailStep(): boolean {
+    const q = this.position.qty;
+    if (q === 0 || !(this.trailRisk > 0) || !this.hasBook) return false;
+    const long = q > 0;
+    const bid = bestBid(this.book!)!;
+    const ask = bestAsk(this.book!)!;
+    const px = long ? bid : ask;
+    this.trailBest = this.trailBest === undefined ? px : long ? Math.max(this.trailBest, px) : Math.min(this.trailBest, px);
+    const sl = this.orders.find((o) => o.leg === 'sl');
+    if (!sl) return false;
+    const want = trailTarget(long, this.position.avgTicks, this.trailRisk, this.trailBest, this.bracket.trailStartR ?? 0, sl.priceTicks);
+    if (want === undefined || (long ? want >= bid : want <= ask)) return false;
+    sl.priceTicks = want;
+    return true;
   }
 
   /**
