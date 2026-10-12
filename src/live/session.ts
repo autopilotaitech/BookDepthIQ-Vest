@@ -16,6 +16,7 @@ import {
 } from '../vest/tradingShapes.js';
 import type { SymbolInfo } from '../vest/types.js';
 import { StopGuard, TrailBook, type TrendLines } from './manage.js';
+import { Blotter, describeWrite } from './blotter.js';
 import { BeWatch, scaleOrders, splitTargets, type Piece, type SkewDir, type Target } from './targets.js';
 import { DEFAULT_LIVE_SIZE_CAP, bracketTicks, breakevenTicks, liveEntryCheck, reanchorPlan, resolveLeverage, type Check } from './rules.js';
 
@@ -138,6 +139,8 @@ export class LiveSession {
   private trailBusy = false;
   private trailAt = 0;
   private trailSent = new Map<string, number>();
+  /** Every request sent to Vest with its status and ack time (the order blotter). */
+  readonly blotter = new Blotter();
   /** Stop recovery: re-place a stop that disappeared from a Vest position (setting, off by default). */
   stopGuardOn = false;
   private readonly guard = new StopGuard();
@@ -167,6 +170,20 @@ export class LiveSession {
       uuid: deps.uuid,
       now: deps.now,
       log: (l) => this.write(l),
+      writes: {
+        sent: (path, body) => {
+          const id = this.blotter.sent(this.deps.now(), describeWrite(path, body));
+          this.deps.onChange();
+          return id;
+        },
+        answered: (id, ok, result, error) => {
+          const r = result && typeof result === 'object' ? (result as Record<string, unknown>) : {};
+          const data = r.data && typeof r.data === 'object' ? (r.data as Record<string, unknown>) : r;
+          const orderId = data.orderId !== undefined ? String(data.orderId) : undefined;
+          this.blotter.answered(id, this.deps.now(), ok, { orderId, error });
+          this.deps.onChange();
+        },
+      },
     });
   }
 
@@ -625,6 +642,37 @@ export class LiveSession {
     return { ok: good, message: `FLATTEN ${sym}: ${out.join('; ')}` };
   }
 
+  /**
+   * KILL: close every Vest position on every symbol at market, cancel every resting order and
+   * disarm everything the panel holds. NEVER gated. `resolve` maps a wire symbol to its info.
+   */
+  async killAll(resolve: (symbol: string) => SymbolInfo | undefined): Promise<Check> {
+    this.disarmStops('KILL');
+    try {
+      this.positions = await this.api.positions(true);
+      this.positionsAt = this.deps.now();
+    } catch (e) {
+      this.write(`! positions read failed (${(e as Error).message}) — closing the last known positions`);
+    }
+    const out: string[] = [];
+    let good = true;
+    for (const sym of new Set(this.positions.map((p) => p.symbol))) {
+      const info = resolve(sym);
+      if (!info) {
+        good = false;
+        out.push(`✗ ${sym}: unknown symbol — FLATTEN it on Vest`);
+        continue;
+      }
+      const r = await this.flatten(info);
+      good = good && r.ok;
+      out.push(r.message);
+    }
+    const c = await this.cancelAll();
+    good = good && c.ok;
+    out.push(c.message);
+    return { ok: good, message: `KILL — ${out.join(' | ')}` };
+  }
+
   /** Cancel resting orders (on `symbol`, or every one when omitted). NEVER gated. */
   async cancelAll(symbol?: string): Promise<Check> {
     this.beWatch.clear(symbol);
@@ -964,6 +1012,8 @@ export class LiveSession {
     const started = this.deps.now();
     try {
       const [pos, ord] = await Promise.all([this.api.positions(), this.api.orders()]);
+      const posKey = (ps: LivePosition[]) => ps.map((p) => `${p.positionId}:${p.qty}`).sort().join(',');
+      this.blotter.reconcile(new Set(ord.map((o) => o.orderId)), posKey(pos) !== posKey(this.positions), this.deps.now());
       this.positions = pos;
       this.orders = ord;
       this.positionsAt = this.deps.now();

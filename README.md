@@ -249,6 +249,35 @@ log*; click again for the tape): every round trip on the market on screen, with 
 tag, size, entry, stop, $ result and R, totals and results per setup, and **copy CSV**. PAPER
 results are exact (fees in); LIVE ones are the last marked P&L (≈). Kept in this browser.
 
+**Pro tools (v1.8)**
+- **Header pills:** **FEED** (green under 2 s since Vest's last message, amber, then red STALE:
+  the ladder greys out and new entries are off; exits keep working) and, in LIVE, **VEST** (⚡ push
+  with Vest's median answer time for your orders, POLLING, or STALE).
+- **KILL ⏻** (or **Ctrl+K**, from anywhere): closes every position on every symbol at market and
+  cancels every order, PAPER or LIVE. Never blocked.
+- **Order status (LIVE):** each resting order chip says where it is (· ACKED / WORKING), and the
+  **blotter** under the ladder lists the last requests: SENT → ACKED → WORKING → FILLED / GONE, or
+  REJECTED with Vest's reason, with Vest's answer time. **NO ANSWER** = still waiting after 3 s:
+  check Vest before you resend.
+- **Fat-finger checks** above the ticket line: size vs your normal (last 20 journal trades), spread,
+  distance of a limit/stop from the market (settings: *far from market pts*, 0 = 4 × ATR; *size ×
+  normal*), stop inside the spread. Any **!** or **✗** asks for a **second click on the same order
+  within 4 s**; the reason shows in the amber bar.
+- **Day lock bar:** when Protect my day locks entries, a red bar over the ticket says why and that
+  exits still work.
+- **heat 5m · pull/stack** column (toggle **heat** in the tape header): resting size at each price
+  over the last 5 minutes (left = older, brighter = more), then size **pulled** (− red: left without
+  trading) or **stacked** (+ green) over the last minute. **ABSORB** = a price that traded at least
+  your big-trade size while its size kept coming back.
+- **Replay:** the panel records the market on screen (book 4×/s, every trade, ticker) into this
+  browser, kept 7 days. **Replay ○** in the header lists the recordings; **▶ start** plays one
+  through the ladder in PAPER only (LIVE is off; a fresh paper account), with « 1m / 1m », 1–10×
+  speed, a position slider with your replay trades as dots, and the replay P&L. **exit replay**
+  brings the live market back.
+- **Journal execution:** each trade records the price you expected when you clicked, slippage
+  (+ = worse), the entry fee, maker/taker and Vest's answer time; the journal shows averages and the
+  CSV has the columns.
+
 **The result bar.** Every LIVE action shows its result right under the LIVE banner: green ✓ when
 Vest accepted it, red ✗ with the reason when it was refused. The full request/response log is in
 the **LIVE LOG** pane. Its **copy** button copies it with your login already blanked out.
@@ -257,6 +286,7 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
 
 | Version | What changed |
 |---|---|
+| 1.8.0 | KILL, FEED/VEST health pills, LIVE order status + blotter, fat-finger checks (second click), day-lock bar, heat/pull/stack column, record + replay, execution columns in the journal. |
 | 1.7.1 | Swing stop **≥ min** floor; SuperTrend loads 45 min of history on open; RANGE H/L pinned when off-screen. |
 | 1.7.0 | **SWING** stop, **STP 1m CLOSE** stop entries, market state (**TREND / CHOP / EXTENDED**) with range lines, trade **journal** with setup tags. Off-screen labels take one line instead of crowding out the ladder. PAPER keeps the stop and targets from the click (an ATR or swing stop no longer changes at the fill). |
 | 1.6.5 | The trail menu applies to the position you're already in, not only the next entry. |

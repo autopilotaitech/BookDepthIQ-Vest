@@ -66,6 +66,14 @@ export interface Settings {
   setup: string;
   /** Side panel shows the trade journal instead of the tape. */
   showJournal: boolean;
+  /** Ladder: heatmap of resting size (5 min) + pull/stack column. */
+  showHeat: boolean;
+  /** Fat-finger: warn when a limit/stop is this many points from the market (0 = 4 × ATR), and when
+   * the size is this many × your normal. A warning needs a second click; nothing is blocked. */
+  ffFarPts: number;
+  ffSizeMult: number;
+  /** LIVE: the order blotter under the ladder. */
+  showBlotter: boolean;
   atrMult: number;
   tpR: number[];
   /** Show the would-be bracket on the ladder before entry (drag the stop to change it). */
@@ -130,6 +138,10 @@ export const DEFAULTS: Settings = {
   stopConfirm: 'touch',
   setup: '',
   showJournal: false,
+  showHeat: true,
+  ffFarPts: 0,
+  ffSizeMult: 2,
+  showBlotter: true,
   atrMult: 1.5,
   tpR: [1, 2, 0],
   preview: 'off',

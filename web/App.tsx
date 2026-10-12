@@ -3,6 +3,8 @@ import { bestAsk, bestBid } from '../src/book/book';
 import { PanelModel } from '../src/panel/model';
 import { formatPrice, tickDecimals, type BracketSettings, type Result, type Side, type WorkingOrder } from '../src/sim/paper';
 import { journalCsv, journalStats, marketState, rMultiple, swingStopTicks, type JournalTrade } from '../src/panel/structure';
+import { feedHealth, needsConfirm, percentiles, tradeChecks, type TradeCheck } from '../src/panel/checks';
+import type { Session } from '../src/panel/replay';
 import { failPrice, leverageUsed, marginUsed, maxUnits, unitsForNotional } from '../src/sim/account';
 import { dayCheck, dayLimitHit, riskWithFees, tradingDay, unitsForRiskWithFees, type DayState } from '../src/panel/protect';
 import { weekendCloseAt } from '../src/live/manage';
@@ -82,6 +84,12 @@ function JournalView(props: { trades: JournalTrade[]; onClear: () => void }) {
       <div className="jsum">
         <b>{st.n}</b> trades · <b>{Math.round(st.winRate * 100)}%</b> won · <b className={pnlClass(st.totalUsd)}>{fmtUsd(st.totalUsd)}</b> · avg <b>{fR(st.avgR)}</b>
       </div>
+      <div className="jset" title="execution: slippage = filled vs the price you expected when you clicked (+ = worse); fees on entries; maker = limit fills, taker = market/stop fills; ack = Vest's answer time (LIVE)">
+        <span>slip avg <b>{st.exec.avgSlipPts === undefined ? '—' : `${st.exec.avgSlipPts.toFixed(2)} pts`}</b> ({fmtUsd(st.exec.slipUsd)})</span>
+        <span>fees <b>{fmtUsd(-st.exec.feesUsd)}</b></span>
+        <span>maker/taker <b>{st.exec.maker}/{st.exec.taker}</b></span>
+        <span>ack <b>{st.exec.ack ? `${st.exec.ack.p50}/${st.exec.ack.p95} ms` : '—'}</b></span>
+      </div>
       {st.bySetup.length > 1 && (
         <div className="jset">
           {st.bySetup.map((x) => (
@@ -103,12 +111,13 @@ function JournalView(props: { trades: JournalTrade[]; onClear: () => void }) {
         .reverse()
         .slice(0, 60)
         .map((t) => (
-          <div key={`${t.open}-${t.sym}`} className="jrow" title={`${t.mode} · entry ${t.entry}${t.exit ? ` → ${t.exit}` : ''}${t.stop ? ` · stop ${t.stop}` : ''} · ${t.stopMode} stop${t.approx ? ' · LIVE result is the last marked P&L (≈)' : ''}`}>
+          <div key={`${t.open}-${t.sym}`} className="jrow" title={`${t.mode} · expected ${t.expected ?? '—'} · entry ${t.entry}${t.exit ? ` → ${t.exit}` : ''}${t.stop ? ` · stop ${t.stop}` : ''} · ${t.stopMode} stop${t.liquidity ? ` · ${t.liquidity}` : ''}${t.feeUsd !== undefined ? ` · fee $${t.feeUsd.toFixed(2)}` : ''}${t.ackMs !== undefined ? ` · ack ${t.ackMs} ms` : ''}${t.approx ? ' · LIVE result is the last marked P&L (≈)' : ''}`}>
             <span>{new Date(t.close).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
             <span>{t.sym.replace(/-PERP$/, '')}</span>
             <span className={t.side === 'long' ? 'pos' : 'neg'}>{t.side === 'long' ? 'L' : 'S'}</span>
             <span>{t.setup || '—'}</span>
             <span>{fR(rMultiple(t))}</span>
+            <span className={t.slipPts !== undefined && t.slipPts > 0 ? 'neg' : 'muted'}>{t.slipPts === undefined ? '' : `${t.slipPts > 0 ? '+' : ''}${t.slipPts.toFixed(2)}`}</span>
             <span className={pnlClass(t.pnl)}>
               {t.approx ? '≈' : ''}
               {fmtUsd(t.pnl)}
@@ -493,6 +502,11 @@ export function App() {
   const onKey = useCallback(
     (e: KeyboardEvent) => {
       const t = e.target as HTMLElement;
+      if ((e.ctrlKey || e.metaKey) && !e.altKey && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        keys.current.__kill?.();
+        return;
+      }
       if (t.tagName === 'INPUT' || t.tagName === 'SELECT') return;
       if (e.ctrlKey || e.metaKey || e.altKey || e.repeat) return;
       if (e.code === 'Space') {
@@ -604,10 +618,12 @@ export function App() {
   const avgRow = pos.qty !== 0 ? Math.round(pos.avgTicks) : undefined;
 
   const place = (side: Side, t: number, stop: boolean) => {
-    if (dayBlocked()) return;
+    if (dayBlocked() || feedBlocked()) return;
     const long = side === 'buy';
     const u = unitsFor(long, t);
     const b = brFor(long, t);
+    if (confirmBlocked(`${stop ? 'stp' : 'lmt'}:${side}:${t}`, checksFor(u, mid === undefined ? undefined : t - mid))) return;
+    lastIntent.current = { side: long ? 'long' : 'short', px: t * tick, kind: stop ? 'stop' : 'limit', at: Date.now() };
     if (live) {
       const c = m.marketCtx();
       // Vest has no stop entry type: the panel holds the stop and fires a MARKET entry (stops.ts).
@@ -643,10 +659,13 @@ export function App() {
   /** A scale runs from the clicked price AWAY from the market: down for buys, up for sells. */
   const scaleEnd = (side: Side, t: number) => t + (side === 'buy' ? -1 : 1) * s.scaleSpanTicks;
   const market = (side: Side) => {
-    if (dayBlocked()) return;
+    if (dayBlocked() || feedBlocked()) return;
     const long = side === 'buy';
     const u = unitsFor(long);
     const b = brFor(long);
+    if (confirmBlocked(`mkt:${side}`, checksFor(u, undefined))) return;
+    const exp = long ? ask : bid;
+    if (exp !== undefined) lastIntent.current = { side: long ? 'long' : 'short', px: exp * tick, kind: 'market', at: Date.now() };
     if (live) {
       const c = m.marketCtx();
       if (c) actAsync(L.enter(side, u, c, b).then(countEntry));
@@ -700,7 +719,87 @@ export function App() {
   const dayBlocked = (): boolean => {
     if (!limitsOn || verdict.ok) return false;
     act({ ok: false, message: verdict.message });
+    setNotice(verdict.message);
     return true;
+  };
+  // ── Fat-finger checks: amber needs a second click on the same order within 4 s; nothing else blocks ──
+  const [notice, setNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!notice) return;
+    const h = setTimeout(() => setNotice(null), 6000);
+    return () => clearTimeout(h);
+  }, [notice]);
+  /** Average size of the last 20 journal trades (needs 5+). */
+  const normalUnits = () => {
+    const q = journal.slice(-20).map((t) => t.qty);
+    return q.length >= 5 ? q.reduce((a, b) => a + b, 0) / q.length : undefined;
+  };
+  const checksFor = (u: number, distTicks: number | undefined): TradeCheck[] =>
+    tradeChecks({
+      units: u,
+      normalUnits: normalUnits(),
+      sizeMult: s.ffSizeMult,
+      distTicks,
+      farTicks: s.ffFarPts > 0 ? Math.round(s.ffFarPts / tick) : atrT ? Math.round(4 * atrT) : 0,
+      gate,
+      spreadTicks: spread,
+      slTicks: slEff,
+      bracketsOn: s.bracketsOn,
+      tick,
+    });
+  const confirmRef = useRef<{ key: string; until: number } | null>(null);
+  /** True (and asks for the second click) when this order's checks have a warning. */
+  const confirmBlocked = (key: string, ck: TradeCheck[]): boolean => {
+    if (!needsConfirm(ck)) {
+      confirmRef.current = null;
+      return false;
+    }
+    const c = confirmRef.current;
+    if (c && c.key === key && Date.now() < c.until) {
+      confirmRef.current = null;
+      return false;
+    }
+    confirmRef.current = { key, until: Date.now() + 4000 };
+    const msg = `${ck.filter((x) => x.level !== 'ok').map((x) => x.text).join(' · ')} — click again within 4 s to send`;
+    setNotice(msg);
+    if (live) setLiveLast({ ok: false, message: msg });
+    return true;
+  };
+  // ── Connection health ──
+  const nowH = Date.now();
+  const feedAge = m.lastMsgAt === undefined ? undefined : nowH - m.lastMsgAt;
+  const health = m.replay ? 'live' : feedHealth(feedAge, m.socketOpen);
+  const vestHealth = !L.positionsFresh() ? 'stale' : L.pushOpen ? 'live' : 'slow';
+  const ackP = percentiles(L.blotter.ackTimes().slice(0, 20));
+  /** Entries are off while the market feed is stale (exits never are). */
+  const feedBlocked = (): boolean => {
+    if (health !== 'stale') return false;
+    const msg = 'market data is stale — entries are off until it is back (FLATTEN, CANCEL and KILL work)';
+    setNotice(msg);
+    if (live) setLiveLast({ ok: false, message: msg });
+    return true;
+  };
+  /** KILL: every position on every symbol closed at market, every order cancelled. Never blocked. */
+  const killNow = () => {
+    if (live) {
+      actAsync(L.killAll((sym) => m.table?.resolve(sym) ?? undefined));
+      return;
+    }
+    const parts: string[] = [];
+    for (const [sym, b] of m.brokers) {
+      if (b.position.qty === 0 && b.orders.length === 0) continue;
+      parts.push(`${m.table?.resolve(sym)?.displaySymbol ?? sym}: ${b.flatten().message}`);
+    }
+    act({ ok: true, message: parts.length ? `KILL — ${parts.join(' | ')}` : 'KILL — nothing open' });
+  };
+  // ── Replay ──
+  const [replayOpen, setReplayOpen] = useState(false);
+  const [sessions, setSessions] = useState<Session[]>([]);
+  const [sessIdx, setSessIdx] = useState(0);
+  const openReplay = () => {
+    const next = !replayOpen;
+    setReplayOpen(next);
+    if (next) void m.sessions().then(setSessions, () => setSessions([]));
   };
   const countEntry = (r: Result) => {
     if (r.ok) saveDay({ trades: daySt.trades + 1 });
@@ -732,12 +831,18 @@ export function App() {
     stop?: number;
     riskUsd?: number;
     setup: string;
-    mode: 'paper' | 'live';
+    mode: 'paper' | 'live' | 'replay';
     stopMode: string;
     realized0: number;
     lastPnl: number;
     lastPx?: number;
+    expected?: number;
+    feeUsd?: number;
+    liquidity?: 'maker' | 'taker';
+    ackMs?: number;
   }>(null);
+  /** What the last entry click expected (for slippage in the journal). */
+  const lastIntent = useRef<{ side: 'long' | 'short'; px: number; kind: 'market' | 'limit' | 'stop'; at: number } | null>(null);
   useEffect(() => {
     const sym = m.info?.displaySymbol ?? m.info?.symbol ?? '';
     const o = openTrade.current;
@@ -746,24 +851,38 @@ export function App() {
       const paperPnl = broker ? broker.realizedUsd - broker.feesUsd - cur.realized0 : 0;
       saveJournal([
         ...journal,
-        { open: cur.open, close: Date.now(), sym: cur.sym, side: cur.side, qty: cur.qty, entry: cur.entry, exit: cur.lastPx, stop: cur.stop, riskUsd: cur.riskUsd, pnl: cur.mode === 'live' ? cur.lastPnl : paperPnl, approx: cur.mode === 'live', setup: cur.setup, mode: cur.mode, stopMode: cur.stopMode },
+        {
+          open: cur.open, close: Date.now(), sym: cur.sym, side: cur.side, qty: cur.qty, entry: cur.entry, exit: cur.lastPx, stop: cur.stop, riskUsd: cur.riskUsd,
+          pnl: cur.mode === 'live' ? cur.lastPnl : paperPnl, approx: cur.mode === 'live', setup: cur.setup, mode: cur.mode, stopMode: cur.stopMode,
+          expected: cur.expected, slipPts: cur.expected === undefined ? undefined : Math.round((cur.entry - cur.expected) * (cur.side === 'long' ? 1 : -1) * 1e6) / 1e6,
+          feeUsd: cur.feeUsd, liquidity: cur.liquidity, ackMs: cur.ackMs,
+        },
       ]);
     };
     if (pos.qty !== 0) {
       if (!o || o.sym !== sym || o.side !== side) {
         if (o && o.sym === sym) closeIt(o); // reversed
-        const lastFee = broker?.fills.at(-1)?.feeUsd ?? 0;
+        const lastFill = broker?.fills.at(-1);
+        const lastFee = lastFill?.feeUsd ?? 0;
+        const intent = lastIntent.current && lastIntent.current.side === side && Date.now() - lastIntent.current.at < 120_000 ? lastIntent.current : null;
+        const entryPx = pos.avgTicks * tick;
+        const makerFee = Number(m.info?.makerFee ?? 0) || 0;
+        const ackRow = live ? L.blotter.rows.find((r) => r.ackMs !== undefined && (r.kind === 'MARKET' || r.kind === 'LIMIT')) : undefined;
         openTrade.current = {
           open: Date.now(),
           sym,
           side,
           qty: Math.abs(pos.qty),
-          entry: pos.avgTicks * tick,
+          entry: entryPx,
           setup: s.setup,
-          mode: live ? 'live' : 'paper',
+          mode: m.replay ? 'replay' : live ? 'live' : 'paper',
           stopMode: s.stopMode,
           realized0: broker ? broker.realizedUsd - broker.feesUsd + lastFee : 0,
           lastPnl: openPnl,
+          expected: intent?.px,
+          feeUsd: live ? Math.abs(pos.qty) * entryPx * (intent?.kind === 'limit' ? makerFee : feeRate) : lastFee,
+          liquidity: live ? (intent?.kind === 'limit' ? 'maker' : 'taker') : lastFill?.liquidity,
+          ackMs: ackRow?.ackMs,
         };
       }
       const cur = openTrade.current!;
@@ -905,7 +1024,7 @@ export function App() {
   const failRow = failTicksPos;
   // v0.8 ladder columns: buy · sold · bid liq · price · ask liq · bought · sell · [P&L] · profile · [Δ]
   const showPnl = pos.qty !== 0;
-  const cols = ['0.5fr', '0.62fr', '0.9fr', '1fr', '0.9fr', '0.62fr', '0.5fr', ...(showPnl ? ['0.7fr'] : []), '1.35fr', ...(s.showDelta ? ['0.7fr'] : [])].join(' ');
+  const cols = ['0.5fr', '0.62fr', '0.9fr', '1fr', '0.9fr', '0.62fr', '0.5fr', ...(showPnl ? ['0.7fr'] : []), ...(s.showHeat ? ['1fr'] : []), '1.35fr', ...(s.showDelta ? ['0.7fr'] : [])].join(' ');
   const gridStyle = { gridTemplateColumns: cols };
   // Header sparkline of session cumulative delta (last 120 trades).
   const spark = (() => {
@@ -1070,6 +1189,10 @@ export function App() {
     >
       {o.id <= -3000 ? '◇' : ''}
       {o.leg ? o.leg.toUpperCase() : o.type === 'stop' ? 'STP' : 'LMT'} {o.id <= -3000 && refPx ? (o.leg === 'sl' ? `−$${riskWithFees(units, slEff, tick, refPx, feeRate).toFixed(2)}` : `+$${(o.qty * Math.abs(o.priceTicks - (pvRef ?? o.priceTicks)) * tick).toFixed(2)}`) : o.qty}
+      {live && o.id <= -1000 && o.id > -2000 && (() => {
+        const st = L.blotter.forOrder(liveOrderIds[-1000 - o.id] ?? '')?.status;
+        return <i className="cst">{` · ${st ?? 'WORKING'}`}</i>;
+      })()}
     </span>
   );
 
@@ -1097,6 +1220,7 @@ export function App() {
   const fillTxt = (r: typeof rtBuy) => (r ? (r.entry.avgTicks * tick).toFixed(dec) : '—');
 
   keys.current = {
+    __kill: killNow,
     f: flattenNow,
     escape: cancelNow,
     ...(armed
@@ -1121,7 +1245,11 @@ export function App() {
           )}
         </>
       ) : (
-        <div className="paper-banner">LOCAL PAPER — orders fill in this window only. Nothing is sent to Vest.</div>
+        <div className="paper-banner">
+          {m.replay
+            ? `REPLAY — recorded ${m.table?.resolve(m.replay.session.symbol)?.displaySymbol ?? m.replay.session.symbol} ${new Date(m.replay.session.from).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} · PAPER only, nothing is sent to Vest.`
+            : 'LOCAL PAPER — orders fill in this window only. Nothing is sent to Vest.'}
+        </div>
       )}
 
       <header className="bar">
@@ -1144,7 +1272,7 @@ export function App() {
           <button className={live ? '' : 'on'} onClick={() => L.goPaper()}>
             PAPER
           </button>
-          <button className={live ? 'on live' : ''} disabled={liveBusy} onClick={() => void toLive()}>
+          <button className={live ? 'on live' : ''} disabled={liveBusy || !!m.replay} title={m.replay ? 'LIVE is off during a replay' : undefined} onClick={() => void toLive()}>
             {liveBusy ? 'LIVE…' : 'LIVE'}
           </button>
         </span>
@@ -1191,6 +1319,20 @@ export function App() {
             ))}
           </select>
         )}
+        <span className={`hpill ${health}`} title="market feed: how long since the last message from Vest. Over 2 s amber, over 6 s STALE: entries off until it is back.">
+          {health === 'live' ? '●' : health === 'slow' ? '◐' : '○'} FEED {m.replay ? 'REPLAY' : feedAge === undefined ? '—' : health === 'live' ? `${feedAge} ms` : `${(feedAge / 1000).toFixed(1)} s`}
+        </span>
+        {live && (
+          <span className={`hpill ${vestHealth}`} title="Vest account link: push connected (⚡), polling, or positions not read recently. ACK = Vest's median / 95th-percentile answer time for your last orders.">
+            {vestHealth === 'live' ? `⚡ VEST${ackP ? ` ACK ${ackP.p50} ms` : ''}` : vestHealth === 'slow' ? '◐ VEST POLLING' : '○ VEST STALE'}
+          </span>
+        )}
+        <button className={`mini ${replayOpen || m.replay ? 'on' : ''}`} onClick={openReplay} title="replay a recorded session (PAPER only)">
+          Replay {m.replay ? '●' : '○'}
+        </button>
+        <button className="kill" onClick={killNow} title="KILL (Ctrl+K): close every position on every symbol at market and cancel every order. Never blocked." aria-label="Kill switch: close everything">
+          KILL ⏻
+        </button>
         <span className={`status ${m.status}`} title={m.statusDetail}>
           ● {m.status}
         </span>
@@ -1223,6 +1365,90 @@ export function App() {
           {m.ladder > 0.8 ? 'QUOTED BOOK' : 'book'} {(m.ladder * 100).toFixed(0)}%
         </span>
       </header>
+      {(replayOpen || m.replay) && (
+        <div className="replaybar">
+          <b className="rtag">REPLAY</b>
+          {!m.replay ? (
+            <>
+              <label htmlFor="rp-sess">Session</label>
+              <select id="rp-sess" value={sessIdx} onChange={(e) => setSessIdx(Number(e.target.value))}>
+                {sessions.map((x, i) => (
+                  <option key={`${x.symbol}${x.from}`} value={i}>
+                    {m.table?.resolve(x.symbol)?.displaySymbol ?? x.symbol} · {new Date(x.from).toLocaleString([], { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}–{new Date(x.to).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} · {x.minutes} min
+                  </option>
+                ))}
+              </select>
+              <button
+                className="mini"
+                disabled={!sessions[sessIdx]}
+                onClick={() => {
+                  const sx = sessions[sessIdx];
+                  if (sx && m.startReplay(sx)) setCenter(null);
+                }}
+              >
+                ▶ start
+              </button>
+              {sessions.length === 0 && <span className="muted">no recordings yet — the panel records the market on screen while it is open (kept 7 days, in this browser)</span>}
+            </>
+          ) : (
+            (() => {
+              const r = m.replay;
+              const p = r.player;
+              const seek = (ms: number) => void p.seek(ms).then(() => setCenter(null));
+              const span = Math.max(1, r.session.to - r.session.from);
+              const rb = broker;
+              const rPnl = rb ? rb.realizedUsd - rb.feesUsd + rb.unrealizedUsd() : 0;
+              return (
+                <>
+                  <button className="mini" onClick={() => seek(p.nowMs - 60_000)} aria-label="back one minute">
+                    « 1m
+                  </button>
+                  <button className="mini on" onClick={() => (p.playing ? p.pause() : p.play(), m.changed())} aria-label={p.playing ? 'pause' : 'play'}>
+                    {p.playing ? '❚❚' : '▶'}
+                  </button>
+                  <button className="mini" onClick={() => seek(p.nowMs + 60_000)} aria-label="forward one minute">
+                    1m »
+                  </button>
+                  {[1, 2, 5, 10].map((x) => (
+                    <button
+                      key={x}
+                      className={`mini ${p.speed === x ? 'on' : ''}`}
+                      onClick={() => {
+                        p.speed = x;
+                        m.changed();
+                      }}
+                    >
+                      {x}×
+                    </button>
+                  ))}
+                  <span className="rclock">{new Date(p.nowMs).toLocaleTimeString([], { hour12: false })}</span>
+                  <span className="rtrack">
+                    {journal
+                      .filter((t) => t.mode === 'replay' && t.open >= r.session.from && t.open <= r.session.to)
+                      .map((t) => (
+                        <i key={t.open} className={t.pnl > 0 ? 'win' : 'loss'} style={{ left: `${(((t.open - r.session.from) / span) * 100).toFixed(2)}%` }} title={`${t.side} ${t.setup || ''} ${fmtUsd(t.pnl)}`} />
+                      ))}
+                    <input id="rp-pos" type="range" min={r.session.from} max={r.session.to} step={1000} value={p.nowMs} onChange={(e) => seek(Number(e.target.value))} aria-label="replay position" />
+                  </span>
+                  <span>
+                    replay P&amp;L <b className={pnlClass(rPnl)}>{fmtUsd(rPnl)}</b>
+                  </span>
+                  <button
+                    className="mini"
+                    onClick={() => {
+                      m.stopReplay();
+                      setReplayOpen(false);
+                      setCenter(null);
+                    }}
+                  >
+                    exit replay
+                  </button>
+                </>
+              );
+            })()
+          )}
+        </div>
+      )}
 
       {live && (
         <section className="account live">
@@ -1318,6 +1544,14 @@ export function App() {
           <label title="Optional largest size a LIVE entry may send. 0 = off: trading power is the limit, as on Vest's own ticket.">
             LIVE size cap u (0 = off)
             <input type="number" min={0} step={0.001} value={s.liveSizeCap} onChange={(e) => update({ liveSizeCap: Math.max(0, Number(e.target.value) || 0) })} />
+          </label>
+          <label title="fat-finger: a limit or stop this far from the market asks for a second click (0 = 4 × ATR)">
+            far from market pts
+            <input type="number" min={0} step={1} value={s.ffFarPts} onChange={(e) => update({ ffFarPts: Math.max(0, Number(e.target.value) || 0) })} />
+          </label>
+          <label title="fat-finger: a size this many × your normal (last 20 trades) asks for a second click">
+            size × normal
+            <input type="number" min={1} step={0.5} value={s.ffSizeMult} onChange={(e) => update({ ffSizeMult: Math.max(1, Number(e.target.value) || 2) })} />
           </label>
           <label title="the one-click $ risk buttons next to the size box">
             risk buttons $
@@ -1564,7 +1798,7 @@ export function App() {
 
       <main className="body">
         <div
-          className="ladder g8"
+          className={`ladder g8 ${health === 'stale' ? 'stale' : ''}`}
           onPointerEnter={() => setOverLadder(true)}
           onPointerLeave={() => setOverLadder(false)}
           onWheel={(e) => {
@@ -1603,6 +1837,11 @@ export function App() {
             <span title="volume that lifted the ask at this price (buyers). Lit = buyers outweigh sellers diagonally by the imbalance ratio">bought</span>
             <span>sell</span>
             {showPnl && <span>P&amp;L</span>}
+            {s.showHeat && (
+              <span title="resting size at each price over the last 5 minutes (left = older, brighter = more size), then pull/stack over the last minute: − = size pulled without trading, + = size stacked. ABSORB = traded a lot while its size kept coming back.">
+                heat 5m · pull/stack
+              </span>
+            )}
             <span title="volume profile since the panel opened: orange = sold at bid, cyan = bought at ask · POC outlined · value area bright">volume profile</span>
             {s.showDelta && (
               <span title="Δ = bought − sold at each price. Click to hide." className={`dhead ${m.cumDelta >= 0 ? 'up' : 'dn'}`} onClick={() => update({ showDelta: false })}>
@@ -1707,6 +1946,25 @@ export function App() {
                   {ordersAt(t, 'sell').map(orderChip)}
                 </span>
                 {showPnl && <span className={`pnl ${pnl === undefined ? '' : pnlClass(pnl)}`}>{pnl === undefined ? '' : fmtUsd(pnl)}</span>}
+                {s.showHeat &&
+                  (() => {
+                    const hm = m.liq.heat(t, g);
+                    const fl = m.liq.flow(t, g, ind.bigMin || 5);
+                    const askSide = ask !== undefined && t >= bk(ask)!;
+                    return (
+                      <span className="heat">
+                        <span className={`hstrip ${askSide ? 'a' : 'b'}`}>
+                          {hm.map((v, i) => (
+                            <i key={i} style={{ opacity: (0.06 + 0.94 * v).toFixed(2) }} />
+                          ))}
+                        </span>
+                        <em className={fl.net > 0 ? 'stk' : fl.net < 0 ? 'pul' : ''} title={`last minute: pulled ${fmtVol(fl.pulled)} · stacked ${fmtVol(fl.stacked)} · traded ${fmtVol(fl.traded)}`}>
+                          {fl.signal && Math.abs(fl.net) >= 0.01 ? `${fl.net > 0 ? '+' : '−'}${fmtVol(Math.abs(fl.net))}` : ''}
+                        </em>
+                        {fl.absorb && <b className="absorb">ABSORB</b>}
+                      </span>
+                    );
+                  })()}
                 <span className={`prof ${volCls}`} title={t === prof.poc ? 'POC — most traded price this session' : volCls === 'va' ? 'inside the 70% value area' : undefined}>
                   <span className="ptrack">
                     {v !== undefined && (
@@ -1730,6 +1988,25 @@ export function App() {
           })}
           </div>
           <div className="pins bottom">{pinned.filter((p) => !p.above).map(pinRow)}</div>
+          {live && s.showBlotter && L.blotter.rows.length > 0 && (
+            <div className="blotter" title="every request sent to Vest: SENT → ACKED → WORKING → FILLED / GONE, or REJECTED. NO ANSWER = still waiting after 3 s: check Vest before resending.">
+              {L.blotter.rows.slice(0, 4).map((r) => {
+                const st = r.status === 'SENT' && Date.now() - r.at >= 3000 ? 'NO ANSWER' : r.status;
+                return (
+                  <div key={r.id} className={`brow s-${st.replace(' ', '-').toLowerCase()}`}>
+                    <span>{new Date(r.at).toLocaleTimeString([], { hour12: false })}</span>
+                    <span>{r.kind}</span>
+                    <span className={r.side === 'buy' ? 'bid' : r.side === 'sell' ? 'ask' : ''}>{r.side ?? ''}</span>
+                    <span>{r.qty ?? ''}</span>
+                    <span>{r.price ? `@ ${r.price}` : ''}</span>
+                    <b>{st}</b>
+                    <span>{r.ackMs !== undefined ? `${r.ackMs} ms` : ''}</span>
+                    <span className="bnote">{r.note ?? ''}</span>
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
 
         <aside className="side">
@@ -1738,6 +2015,9 @@ export function App() {
               {s.showJournal ? 'Journal' : 'Vest tape'}
               <button className={`mini ${s.showJournal ? 'on' : ''}`} title="trade journal: every trade with its setup, risk, result and R" onClick={() => update({ showJournal: !s.showJournal })}>
                 journal
+              </button>
+              <button className={`mini ${s.showHeat ? 'on' : ''}`} title="heatmap + pull/stack column on the ladder" onClick={() => update({ showHeat: !s.showHeat })}>
+                heat
               </button>
               <button className="mini" title={s.showLog ? 'hide the log: tape only' : 'show the PAPER / LIVE request log under the tape'} onClick={() => update({ showLog: !s.showLog })}>
                 {s.showLog ? 'hide log' : 'log'}
@@ -2010,6 +2290,28 @@ export function App() {
             <input type="checkbox" checked={s.stopGuard} onChange={(e) => update({ stopGuard: e.target.checked })} /> stop guard
           </label>
         </div>
+        {limitsOn && !verdict.ok && (
+          <div className="lockbar">
+            <b>{dayLimitHit(limits, daySt, equity) ? `DAY LOCKED · ${fmtUsd(dayPnl)} of −$${limits.lossUsd}` : 'ENTRIES PAUSED'}</b> {verdict.message}. FLATTEN, CANCEL, CLOSE HALF, stop moves and KILL keep working.
+          </div>
+        )}
+        {notice && (
+          <div className="noticebar" onClick={() => setNotice(null)} title="click to dismiss">
+            {notice}
+          </div>
+        )}
+        {(() => {
+          const ck = checksFor(units, undefined);
+          return ck.length ? (
+            <div className="checks" title="fat-finger checks for the next order: ! needs a second click; ✗ would fill at once or be rejected">
+              {ck.map((c, i) => (
+                <i key={i} className={c.level}>
+                  {c.level === 'ok' ? '✓' : c.level === 'warn' ? '!' : '✗'} {c.text}
+                </i>
+              ))}
+            </div>
+          ) : null;
+        })()}
         <div className="pretrade">
           <span>
             = <b>{units.toFixed(sizeDec)}u</b> <small>{eq(units)}</small>

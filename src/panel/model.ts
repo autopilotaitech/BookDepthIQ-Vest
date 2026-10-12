@@ -14,7 +14,10 @@ import { BasisTracker, SpreadWindow } from './ladderMath.js';
 import { fetchExchangeInfo, fetchMarketKey, fetchRecentTrades, fetchTradesBefore } from '../vest/rest.js';
 import { buildSymbolTable, tickSizeOf, type SymbolTable } from '../vest/symbols.js';
 import type { SymbolInfo, TickerData } from '../vest/types.js';
-import { VestMarketSocket, type SocketFactory } from '../vest/ws.js';
+import { VestMarketSocket, type MarketHandlers, type SocketFactory } from '../vest/ws.js';
+import { LiquidityTracker } from './liquidity.js';
+import { Player, Recorder, listSessions, type Rec, type Session } from './replay.js';
+import { openStore } from './idbStore.js';
 import { LiveSession, type MarketCtx } from '../live/session.js';
 import type { FetchLike } from '../vest/trading.js';
 
@@ -131,6 +134,20 @@ export class PanelModel {
   /** The real-Vest side. Starts in PAPER on every launch. */
   live: LiveSession;
 
+  /** Resting size over time and pull/stack per price (heatmap column). */
+  readonly liq = new LiquidityTracker();
+  /** When the last market message arrived, and how late it was (ms) when Vest stamped it. */
+  lastMsgAt: number | undefined;
+  feedLagMs: number | undefined;
+  socketOpen = false;
+  /** Records the market on screen for replay (IndexedDB). */
+  readonly store = openStore();
+  readonly recorder = new Recorder(this.store);
+  /** While set, the panel shows a recorded session instead of the live market (PAPER only). */
+  replay: { player: Player; session: Session; liveBroker: PaperBroker | undefined } | null = null;
+  /** The handlers market data goes through, live or replayed. */
+  private h: MarketHandlers = {};
+
   private sock: VestMarketSocket | null = null;
   private listeners = new Set<() => void>();
   private dirty = false;
@@ -185,9 +202,9 @@ export class PanelModel {
       this.changed();
       return;
     }
-    this.sock = new VestMarketSocket(
-      {
+    this.h = {
         onStatus: (s, d) => {
+          this.socketOpen = s === 'open';
           this.status = s === 'open' ? 'live' : 'reconnecting';
           // Stops fire on trades from this socket: without it they would sit blind.
           if (s !== 'open') this.live.disarmStops('market data connection lost');
@@ -207,13 +224,14 @@ export class PanelModel {
           }
           this.book = book;
           const sp = spreadTicks(book);
-          if (sp !== undefined) this.spreadWin.push(sp, Date.now());
+          if (sp !== undefined) this.spreadWin.push(sp, this.clock());
+          this.liq.onBook(book, msg.tsMs ?? this.clock());
           this.ladder = ladderScore([...book.bids.sizes, ...book.asks.sizes]).score;
           const bidSum = book.bids.sizes.reduce((a, b) => a + b, 0);
           const askSum = book.asks.sizes.reduce((a, b) => a + b, 0);
           if (bidSum + askSum > 0) this.trend.setBookImbalance((bidSum - askSum) / (bidSum + askSum));
           // Premium sample (≤ 1/s): impact prices for $100 / initial margin ratio vs the index.
-          const nowMs = Date.now();
+          const nowMs = this.clock();
           const idx = Number(this.ticker?.indexPrice);
           const imr = Number(info.initMarginRatio);
           if (nowMs - this.lastPremiumAt >= 1000 && idx > 0 && imr > 0) {
@@ -228,6 +246,7 @@ export class PanelModel {
           const t = Math.round(Number(msg.data.price) / this.tick);
           const q = Number(msg.data.qty);
           this.lastTradeTicks = t;
+          this.liq.onTrade(t, q);
           this.volumeAt.set(t, (this.volumeAt.get(t) ?? 0) + q);
           const sq = signedQty(msg.data.side, q);
           this.deltaAt.set(t, (this.deltaAt.get(t) ?? 0) + sq);
@@ -259,22 +278,104 @@ export class PanelModel {
           const idx = Number(msg.data.indexPrice) / this.tick;
           const md = this.book ? midTicks(this.book) : undefined;
           if (Number.isFinite(idx)) {
-            if (md !== undefined) this.basisTracker.update(md, idx, Date.now());
+            if (md !== undefined) this.basisTracker.update(md, idx, this.clock());
             this.impliedTicks = this.basisTracker.implied(idx);
           }
           this.changed();
         },
+    };
+    // Live messages: timed for the health pill, recorded for replay, and ignored while replaying.
+    const seen = (sym: string, k: Rec['k'], m: unknown, tsMs: number | undefined) => {
+      const now = Date.now();
+      this.lastMsgAt = now;
+      if (tsMs) this.feedLagMs = Math.max(0, now - tsMs);
+      if (sym === this.info?.symbol && !this.replay) this.recorder.add(sym, { t: now, k, m } as Rec);
+      return !this.replay;
+    };
+    this.sock = new VestMarketSocket(
+      {
+        onStatus: (s, d) => this.h.onStatus?.(s, d),
+        onRejected: (s, r) => this.h.onRejected?.(s, r),
+        onDepth: (sym, msg) => seen(sym, 'd', msg, msg.tsMs) && this.h.onDepth?.(sym, msg),
+        onTrade: (sym, msg) => seen(sym, 't', msg, msg.tsMs) && this.h.onTrade?.(sym, msg),
+        onTicker: (sym, msg) => seen(sym, 'x', msg, msg.tsMs) && this.h.onTicker?.(sym, msg),
       },
       undefined,
       this.factory,
     );
     this.sock.start();
     this.select(symbol);
+    void this.recorder.prune(Date.now()).catch(() => {});
   }
 
-  select(name: string): boolean {
+  /** The panel's clock: real time, or the replay's position while replaying. */
+  clock(): number {
+    return this.replay ? this.replay.player.nowMs : Date.now();
+  }
+
+  // ───────────── replay ─────────────
+
+  async sessions(): Promise<Session[]> {
+    await this.recorder.flush(); // include the minutes recorded so far
+    return listSessions(await this.store.keys());
+  }
+
+  /**
+   * Replay a recorded session in PAPER: the live market is set aside (LIVE goes back to PAPER and
+   * stays off), the session's symbol is shown, and its recorded book + trades drive the ladder and a
+   * fresh paper account. `stopReplay` restores the live market and the real paper account.
+   */
+  startReplay(s: Session): boolean {
+    this.stopReplay();
+    if (this.live.mode === 'live') this.live.goPaper();
+    if (!this.table?.resolve(s.symbol)) return false;
+    const player = new Player(this.store, s, {
+      emit: (r) => {
+        if (r.k === 'd') this.h.onDepth?.(s.symbol, r.m);
+        else if (r.k === 't') this.h.onTrade?.(s.symbol, r.m);
+        else this.h.onTicker?.(s.symbol, r.m);
+      },
+      reset: () => this.resetReplayMarket(),
+      tick: () => this.changed(),
+      done: () => {
+        this.note('replay: end of the recorded session');
+        this.changed();
+      },
+    });
+    this.replay = { player, session: s, liveBroker: undefined };
+    this.select(s.symbol, { replay: true });
+    this.replay.liveBroker = this.brokers.get(s.symbol);
+    this.resetReplayMarket();
+    player.play();
+    return true;
+  }
+
+  /** Fresh market state and a fresh paper account for the replayed symbol. */
+  private resetReplayMarket(): void {
+    const r = this.replay;
+    const info = this.table?.resolve(r?.session.symbol ?? '');
+    if (!r || !info) return;
+    const b = new PaperBroker({ tickSize: tickSizeOf(info), sizeDecimals: info.sizeDecimals, takerFee: Number(info.takerFee ?? 0) || 0, makerFee: Number(info.makerFee ?? 0) || 0 });
+    if (this.broker) b.bracket = { ...this.broker.bracket };
+    this.brokers.set(info.symbol, b);
+    this.select(info.symbol, { replay: true });
+  }
+
+  stopReplay(): void {
+    const r = this.replay;
+    if (!r) return;
+    r.player.pause();
+    this.replay = null;
+    const sym = r.session.symbol;
+    if (r.liveBroker) this.brokers.set(sym, r.liveBroker);
+    else this.brokers.delete(sym);
+    this.select(sym);
+  }
+
+  select(name: string, opts: { replay?: boolean } = {}): boolean {
     const info = this.table?.resolve(name);
     if (!info || !this.sock) return false;
+    if (this.replay && !opts.replay) return false; // leave replay first
     const prev = this.info?.symbol;
     if (prev && prev !== info.symbol) this.live.disarmStops('instrument switched');
     this.info = info;
@@ -312,6 +413,9 @@ export class PanelModel {
     this.lastFlip = null;
     this.flips = [];
     this.bars.clear();
+    this.liq.reset();
+    this.trendWarm = null;
+    this.trendLoading = false;
     this.trendLive = 0;
     this.lastTradeTicks = undefined;
     this.spreadWin = new SpreadWindow();
@@ -330,8 +434,10 @@ export class PanelModel {
     }
     this.broker = broker;
     this.sock.subscribe(info.symbol, ['depth', 'trades', 'ticker']);
-    void this.seedTape(info.symbol);
-    void this.warmTrend(info.symbol);
+    if (!opts.replay) {
+      void this.seedTape(info.symbol);
+      void this.warmTrend(info.symbol);
+    }
     this.changed();
     return true;
   }
@@ -397,7 +503,7 @@ export class PanelModel {
   }
 
   private onIndicatorTrade(timeMs: number, priceTicks: number, qty: number): void {
-    if (Date.now() - this.vwapCheckAt > 30_000) this.refreshVwapSession();
+    if (this.clock() - this.vwapCheckAt > 30_000) this.refreshVwapSession();
     const w = this.vwapWin;
     if (this.ind.vwapOn && w && timeMs >= w.from && timeMs <= w.to) this.vwap.add(priceTicks, qty);
     this.or?.add(timeMs, priceTicks);
@@ -406,17 +512,17 @@ export class PanelModel {
 
   /** Recompute the session window; on a new session (or settings change) reset and page in its trades. */
   private refreshVwapSession(): void {
-    this.vwapCheckAt = Date.now();
+    this.vwapCheckAt = this.clock();
     this.refreshOrSession();
     const sym = this.info?.symbol;
     const c = this.ind;
-    const w = c.vwapOn && sym ? sessionWindow(Date.now(), c.vwapStart, c.vwapEnd, c.vwapTz) : undefined;
+    const w = c.vwapOn && sym ? sessionWindow(this.clock(), c.vwapStart, c.vwapEnd, c.vwapTz) : undefined;
     const key = w && sym ? `${sym}|${w.from}|${w.to}` : '';
     if (key === this.vwapKey) return; // same session: keep the running VWAP
     this.vwapKey = key;
     this.vwap.reset();
     this.vwapWin = w;
-    if (w && sym) void this.loadVwapHistory(sym, key, w);
+    if (w && sym && !this.replay) void this.loadVwapHistory(sym, key, w); // a replay builds VWAP from its own trades
     this.changed();
   }
 
@@ -425,12 +531,12 @@ export class PanelModel {
     const info = this.info;
     const root = orRoot(info?.displaySymbol ?? info?.symbol);
     const cfg = { ...DEFAULT_PAXOR, showMid: this.ind.orMid };
-    const s = this.ind.orOn && root && info ? orSession(Date.now(), cfg) : undefined;
+    const s = this.ind.orOn && root && info ? orSession(this.clock(), cfg) : undefined;
     const key = s && info ? `${info.symbol}|${s.start}|${cfg.showMid}` : '';
     if (key === this.orKey) return;
     this.orKey = key;
     this.or = s && info ? new PaxOr(s, levelFactorTicks(root, cfg, this.tick), cfg.showMid) : undefined;
-    if (this.or && info && Date.now() > s!.start) void this.loadOrHistory(info.symbol, key, this.or);
+    if (this.or && info && !this.replay && Date.now() > s!.start) void this.loadOrHistory(info.symbol, key, this.or);
     this.changed();
   }
 

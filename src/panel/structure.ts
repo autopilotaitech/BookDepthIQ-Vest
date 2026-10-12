@@ -1,6 +1,8 @@
 // Price structure for the ticket and the ladder: one-minute highs/lows (swing stops, the range),
 // and whether the market is trending, chopping or stretched. Pure: no I/O. Prices in ticks.
 
+import { percentiles } from './checks.js';
+
 export interface Bar {
   hi: number;
   lo: number;
@@ -123,8 +125,15 @@ export interface JournalTrade {
   pnl: number;
   approx: boolean;
   setup: string;
-  mode: 'paper' | 'live';
+  mode: 'paper' | 'live' | 'replay';
   stopMode: string;
+  /** Execution: the price you expected when you clicked (ask/bid for market, your price for a
+   * limit/stop), slippage in points (+ = worse than expected), entry fee, maker/taker, Vest ack ms. */
+  expected?: number;
+  slipPts?: number;
+  feeUsd?: number;
+  liquidity?: 'maker' | 'taker';
+  ackMs?: number;
 }
 
 /** Result in R (P&L ÷ risk at entry), when the risk is known. */
@@ -140,6 +149,8 @@ export interface JournalStats {
   avgR: number | undefined;
   /** Per setup tag: trades, $ total, average R. */
   bySetup: Array<{ setup: string; n: number; totalUsd: number; avgR: number | undefined }>;
+  /** Execution quality over the trades that recorded it. */
+  exec: { avgSlipPts: number | undefined; slipUsd: number; feesUsd: number; maker: number; taker: number; ack: { p50: number; p95: number } | undefined };
 }
 
 export function journalStats(trades: JournalTrade[]): JournalStats {
@@ -152,6 +163,14 @@ export function journalStats(trades: JournalTrade[]): JournalStats {
     winRate: trades.length ? trades.filter((t) => t.pnl > 0).length / trades.length : 0,
     totalUsd: trades.reduce((a, t) => a + t.pnl, 0),
     avgR: avg(rs),
+    exec: {
+      avgSlipPts: avg(trades.map((t) => t.slipPts).filter((x): x is number => x !== undefined)),
+      slipUsd: trades.reduce((a, t) => a + (t.slipPts !== undefined ? -t.slipPts * t.qty : 0), 0),
+      feesUsd: trades.reduce((a, t) => a + (t.feeUsd ?? 0), 0),
+      maker: trades.filter((t) => t.liquidity === 'maker').length,
+      taker: trades.filter((t) => t.liquidity === 'taker').length,
+      ack: percentiles(trades.map((t) => t.ackMs).filter((x): x is number => x !== undefined)),
+    },
     bySetup: tags.map((tag) => {
       const ts = trades.filter((t) => (t.setup || '—') === tag);
       return { setup: tag, n: ts.length, totalUsd: ts.reduce((a, t) => a + t.pnl, 0), avgR: avg(ts.map(rMultiple).filter((x): x is number => x !== undefined)) };
@@ -162,9 +181,9 @@ export function journalStats(trades: JournalTrade[]): JournalStats {
 export function journalCsv(trades: JournalTrade[]): string {
   const f = (v: number | undefined, d = 2) => (v === undefined ? '' : v.toFixed(d));
   return [
-    'open,close,minutes,market,mode,side,qty,entry,exit,stop,risk_usd,pnl_usd,r,setup,stop_mode,approx',
+    'open,close,minutes,market,mode,side,qty,entry,exit,stop,risk_usd,pnl_usd,r,setup,stop_mode,approx,expected,slip_pts,fee_usd,liquidity,ack_ms',
     ...trades.map((t) =>
-      [new Date(t.open).toISOString(), new Date(t.close).toISOString(), ((t.close - t.open) / 60_000).toFixed(1), t.sym, t.mode, t.side, t.qty, t.entry, t.exit ?? '', t.stop ?? '', f(t.riskUsd), f(t.pnl), f(rMultiple(t)), t.setup, t.stopMode, t.approx ? 'yes' : ''].join(','),
+      [new Date(t.open).toISOString(), new Date(t.close).toISOString(), ((t.close - t.open) / 60_000).toFixed(1), t.sym, t.mode, t.side, t.qty, t.entry, t.exit ?? '', t.stop ?? '', f(t.riskUsd), f(t.pnl), f(rMultiple(t)), t.setup, t.stopMode, t.approx ? 'yes' : '', t.expected ?? '', f(t.slipPts), f(t.feeUsd), t.liquidity ?? '', t.ackMs ?? ''].join(','),
     ),
   ].join('\n');
 }

@@ -879,3 +879,31 @@ describe('LIVE close-confirmed stop entry', () => {
     expect(w[0]!.body).toMatchObject({ orderType: 'market', side: 'long' });
   });
 });
+
+describe('v1.8 LIVE: blotter from every write, KILL', () => {
+  it('every write lands in the blotter with its ack time and the order id', async () => {
+    const { s } = await liveSession(vest());
+    await s.enterLimit('buy', 0.001, 125760, MKT, { bracketsOn: false, tpTicks: 0, slTicks: 0 });
+    const r = s.blotter.rows[0]!;
+    expect(r).toMatchObject({ kind: 'LIMIT', side: 'buy', qty: '0.001', price: '31440', status: 'ACKED', orderId: 'O1' });
+  });
+
+  it('a refused write is REJECTED with Vest’s reason', async () => {
+    const base = vest();
+    const { s } = await liveSession((c) => (c.path === '/v3/positions/open' ? { status: 400, body: { msg: 'exceeds trading power' } } : base(c)));
+    await s.enter('buy', 0.001, MKT, { bracketsOn: false, tpTicks: 0, slTicks: 0 });
+    expect(s.blotter.rows[0]).toMatchObject({ kind: 'MARKET', status: 'REJECTED' });
+    expect(s.blotter.rows[0]!.note).toMatch(/exceeds trading power/);
+  });
+
+  it('KILL closes every position on every symbol and cancels every order', async () => {
+    const es = { ...LONG_POS, positionId: 'P2', symbol: 'SPX-USD-PERP' };
+    const { s, calls } = await liveSession(vest({ positions: [LONG_POS, es], orders: [VEST_LIMIT] }));
+    const ES: SymbolInfo = { ...NQ, symbol: 'SPX-USD-PERP', displaySymbol: 'ES-PERP' };
+    const r = await s.killAll((sym) => (sym === NQ.symbol ? NQ : sym === ES.symbol ? ES : undefined));
+    expect(r.ok).toBe(true);
+    const paths = writes(calls).map((c) => c.path);
+    expect(paths.filter((p) => p === '/v3/positions/close')).toHaveLength(2);
+    expect(paths).toContain('/v3/positions/cancel-order');
+  });
+});

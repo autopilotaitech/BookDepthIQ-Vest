@@ -20,7 +20,8 @@ here, and do not add Vest code to BookDepthIQ. Read `docs/DESIGN.md` before chan
    it on, and none of them ever opens a position: trailing stop (moves the stop only in the user's
    favour, `src/live/manage.ts`), stop recovery (re-places a stop that vanished from a Vest
    position, at its last price), close at the user's daily loss limit, and close 5 min before
-   Vest's weekend lock. Nothing else may send an order without a click.
+   Vest's weekend lock. Nothing else may send an order without a click. (KILL, v1.8, is a click:
+   one button / Ctrl+K that closes every position and cancels every order — an exit, never gated.)
 3. **Never guess an endpoint payload.** Order shapes come from a HAR captured in the owner's own
    session. Vest has no public API docs.
 4. **Brackets are the user's numbers.** No hard-coded TP/SL distances.

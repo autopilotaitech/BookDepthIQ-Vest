@@ -51,6 +51,11 @@ export interface TradingDeps {
   now(): number;
   log(line: string): void;
   base?: string;
+  /** Told about every write (order, cancel, stop move…): before it goes and when Vest answers. */
+  writes?: {
+    sent(path: string, body: Record<string, unknown> | undefined): number;
+    answered(id: number, ok: boolean, result: unknown, error?: string): void;
+  };
 }
 
 export class VestApiError extends Error {
@@ -194,6 +199,19 @@ export class VestTrading {
   }
 
   private async call(method: string, path: string, body: unknown, auth: 'user' | 'account', kind: Kind, exit = false): Promise<unknown> {
+    if (kind !== 'write' || !this.deps.writes) return this.callInner(method, path, body, auth, kind, exit);
+    const id = this.deps.writes.sent(path, body as Record<string, unknown> | undefined);
+    try {
+      const r = await this.callInner(method, path, body, auth, kind, exit);
+      this.deps.writes.answered(id, true, r);
+      return r;
+    } catch (e) {
+      this.deps.writes.answered(id, false, undefined, (e as Error).message);
+      throw e;
+    }
+  }
+
+  private async callInner(method: string, path: string, body: unknown, auth: 'user' | 'account', kind: Kind, exit = false): Promise<unknown> {
     const idem = kind === 'write' ? this.deps.uuid() : undefined;
     if (auth === 'user') {
       const user = this.deps.userToken();
