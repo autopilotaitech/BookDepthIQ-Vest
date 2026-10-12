@@ -1,4 +1,5 @@
 import { bestAsk, bestBid, bookFromDepth, midTicks, spreadTicks, type Book } from '../book/book.js';
+import type { TrendLines } from '../live/manage.js';
 import { ladderScore } from '../book/stats.js';
 import { signedQty } from './profile.js';
 import { DualTrend, type DualSnapshot } from './supertrend.js';
@@ -139,7 +140,16 @@ export class PanelModel {
   /** Book and symbol context for a LIVE action on the symbol on screen. */
   marketCtx(): MarketCtx | null {
     if (!this.info) return null;
-    return { info: this.info, tick: this.tick, bid: this.book ? bestBid(this.book) : undefined, ask: this.book ? bestAsk(this.book) : undefined };
+    return { info: this.info, tick: this.tick, bid: this.book ? bestBid(this.book) : undefined, ask: this.book ? bestAsk(this.book) : undefined, st: this.trendLines() };
+  }
+
+  /** ST1 / ST2 as lines with a direction (none while neutral or warming up). */
+  trendLines(): TrendLines {
+    const out: TrendLines = {};
+    const { t1, t2 } = this.trendSnap;
+    if (t1.lineTicks !== undefined && t1.dir !== 'neutral') out[1] = { ticks: t1.lineTicks, dir: t1.dir };
+    if (t2.lineTicks !== undefined && t2.dir !== 'neutral') out[2] = { ticks: t2.lineTicks, dir: t2.dir };
+    return out;
   }
 
   subscribe(fn: () => void): () => void {
@@ -214,6 +224,7 @@ export class PanelModel {
           this.deltaAt.set(t, (this.deltaAt.get(t) ?? 0) + sq);
           this.cumDelta += sq;
           this.feedTrend(msg.data.time, t, q, msg.data.side === 'buy');
+          if (this.broker) this.broker.trendLines = this.trendLines();
           this.onIndicatorTrade(msg.data.time, t, q);
           this.trendLive++;
           // Panel-held stops, trailing stops and B/E after TP1 read the trade feed (LIVE only).

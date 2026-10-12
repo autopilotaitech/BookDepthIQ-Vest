@@ -23,6 +23,8 @@ export interface ArmedStop {
   slTicks: number;
   /** Trailing stop start (× risk) for the position it opens; 0/absent = off. */
   trailStartR?: number;
+  /** Or a SuperTrend trail: 1 = ST1, 2 = ST2. */
+  trailLine?: 1 | 2;
   armedAt: number;
 }
 

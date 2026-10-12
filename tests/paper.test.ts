@@ -278,3 +278,18 @@ describe('close half and trailing stop (paper)', () => {
     expect(b.orders.find((o) => o.leg === 'sl')!.priceTicks).toBe(104);
   });
 });
+
+describe('SuperTrend trail (paper)', () => {
+  it('the stop follows ST2 up while it stays under the bid', () => {
+    const b = new PaperBroker(CFG);
+    b.bracket = { enabled: true, tpTicks: 0, slTicks: 4, trailLine: 2 };
+    b.onBook(book(100, 102));
+    b.marketOrder('buy', 1); // SL 98
+    b.trendLines = { 2: { ticks: 99, dir: 'up' } };
+    b.onBook(book(101, 103));
+    expect(b.orders.find((o) => o.leg === 'sl')!.priceTicks).toBe(99);
+    b.trendLines = { 2: { ticks: 97, dir: 'up' } }; // line dipped: stop stays
+    b.onBook(book(101, 103));
+    expect(b.orders.find((o) => o.leg === 'sl')!.priceTicks).toBe(99);
+  });
+});

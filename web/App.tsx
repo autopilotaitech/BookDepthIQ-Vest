@@ -235,12 +235,12 @@ export function App() {
   const split = parseSplit(s.tpSplit);
   const targets: Target[] = tpEff.map((ticks, i) => ({ ticks, pct: split[i] ?? 0 }));
   const multiTp = targets.filter((t) => t.ticks > 0).length >= 2;
-  const br: BracketCtx = { bracketsOn: s.bracketsOn, tpTicks: tpEff[0]!, slTicks: slEff, targets, beAfterTp1: multiTp && s.beAfterTp1, beOffset: s.beOffset, trailStartR: s.trailStartR };
+  const br: BracketCtx = { bracketsOn: s.bracketsOn, tpTicks: tpEff[0]!, slTicks: slEff, targets, beAfterTp1: multiTp && s.beAfterTp1, beOffset: s.beOffset, trailStartR: s.trailLine ? 0 : s.trailStartR, trailLine: s.trailLine || undefined };
   const brKey = JSON.stringify(br);
   const broker = m.broker;
   useEffect(() => {
     const b = JSON.parse(brKey) as BracketCtx;
-    if (broker) broker.bracket = { enabled: b.bracketsOn, tpTicks: b.tpTicks, slTicks: b.slTicks, targets: b.targets, beAfterTp1: b.beAfterTp1, beOffset: b.beOffset, trailStartR: b.trailStartR };
+    if (broker) broker.bracket = { enabled: b.bracketsOn, tpTicks: b.tpTicks, slTicks: b.slTicks, targets: b.targets, beAfterTp1: b.beAfterTp1, beOffset: b.beOffset, trailStartR: b.trailStartR, trailLine: b.trailLine };
   }, [broker, brKey]);
 
   useEffect(() => {
@@ -786,7 +786,9 @@ export function App() {
       const usd = (o.priceTicks - pos.avgTicks) * dir * Math.min(o.qty, q) * tick;
       brLines.push({ ticks: o.priceTicks, cls: o.leg === 'sl' ? 'br-sl' : 'br-tp', label: `${o.leg === 'sl' ? 'SL' : 'TP'} ${fmtUsd(usd)}` });
     }
-    if (s.trailStartR > 0 && slEff > 0) brLines.push({ ticks: Math.round(pos.avgTicks + dir * s.trailStartR * slEff), cls: 'br-trail', label: `TRAIL starts here (${s.trailStartR}R)` });
+    const stl = s.trailLine === 1 ? st1 : s.trailLine === 2 ? st2 : undefined;
+    if (stl && stl.dir === (dir > 0 ? 'up' : 'down')) brLines.push({ ticks: stl.ticks, cls: 'br-trail', label: `TRAIL on ST${s.trailLine}` });
+    else if (!s.trailLine && s.trailStartR > 0 && slEff > 0) brLines.push({ ticks: Math.round(pos.avgTicks + dir * s.trailStartR * slEff), cls: 'br-trail', label: `TRAIL starts here (${s.trailStartR}R)` });
   } else if (pvRef !== undefined && pvChips.length) {
     const dir = pvLong ? 1 : -1;
     brLines.push({ ticks: pvRef, cls: 'br-in pv', label: `PREVIEW ${pvLong ? 'LONG' : 'SHORT'} ${units}u` });
@@ -796,7 +798,7 @@ export function App() {
         cls: `${o.leg === 'sl' ? 'br-sl' : 'br-tp'} pv`,
         label: o.leg === 'sl' ? `SL −$${(refPx ? riskWithFees(units, slEff, tick, refPx, feeRate) : 0).toFixed(2)}${atrMode ? ` (${s.atrMult}× ATR)` : ''}` : `TP +$${(o.qty * Math.abs(o.priceTicks - pvRef) * tick).toFixed(2)}`,
       });
-    if (s.trailStartR > 0 && slEff > 0) brLines.push({ ticks: pvRef + dir * Math.round(s.trailStartR * slEff), cls: 'br-trail pv', label: `TRAIL starts (${s.trailStartR}R)` });
+    if (!s.trailLine && s.trailStartR > 0 && slEff > 0) brLines.push({ ticks: pvRef + dir * Math.round(s.trailStartR * slEff), cls: 'br-trail pv', label: `TRAIL starts (${s.trailStartR}R)` });
   }
   for (const l of brLines) addLine(l.ticks, l.cls, l.label);
   const fitSpan = brLines.length && mid !== undefined ? Math.max(...brLines.map((l) => Math.abs(l.ticks - mid))) : 0;
@@ -1726,13 +1728,22 @@ export function App() {
           >
             PREVIEW {s.preview === 'off' ? 'OFF' : s.preview === 'long' ? 'LONG' : 'SHORT'}
           </button>
-          <label title="trailing stop: once price is this many × your risk in your favour, the stop follows the best price one risk behind and only moves your way. The panel moves it without a click (keep this window open).">
+          <label title="trailing stop, moved by the panel without a click (keep this window open), only ever your way. From xR: once price is that many × your risk in your favour, the stop follows the best price one risk behind. ST1 / ST2: the stop sits on that SuperTrend line while it is on your side.">
             trail
-            <select value={s.trailStartR} onChange={(e) => update({ trailStartR: Number(e.target.value) })}>
-              <option value={0}>off</option>
-              <option value={1}>from 1R</option>
-              <option value={1.5}>from 1.5R</option>
-              <option value={2}>from 2R</option>
+            <select
+              value={s.trailLine ? `st${s.trailLine}` : String(s.trailStartR)}
+              onChange={(e) => {
+                const v = e.target.value;
+                if (v === 'st1' || v === 'st2') update({ trailLine: v === 'st1' ? 1 : 2, trailStartR: 0 });
+                else update({ trailLine: 0, trailStartR: Number(v) });
+              }}
+            >
+              <option value="0">off</option>
+              <option value="1">from 1R</option>
+              <option value="1.5">from 1.5R</option>
+              <option value="2">from 2R</option>
+              <option value="st1">on ST1 (60 s)</option>
+              <option value="st2">on ST2 (15 s)</option>
             </select>
           </label>
           <label title="LIVE: if a Vest position loses its stop, the panel puts it back at the last price and shows a red warning (keep this window open)">

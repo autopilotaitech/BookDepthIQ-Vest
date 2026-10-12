@@ -191,7 +191,9 @@ and delta count from when the panel opens.
   the risk stays the same. In ATR mode **snap back** returns to ATR × multiple.
 - **CLOSE ½** closes half the position at market. Like FLATTEN, it is never blocked.
 - **trail** (from 1R / 1.5R / 2R): once price is that far in your favour, the stop follows the best
-  price one risk behind and only moves your way. **stop guard** (LIVE): if a Vest position loses
+  price one risk behind and only moves your way. **on ST1 / on ST2**: the stop sits on that
+  SuperTrend line while the line is on your side (under a long, over a short), and never moves
+  back; a flipped line leaves the stop where it is. **stop guard** (LIVE): if a Vest position loses
   its stop, the panel puts it back at the last price and shows a red warning.
 - **Protect my day** (settings; all off by default): a daily loss limit (with *also close open
   trades*), max trades per day, a cooldown after a loss, and *close before the weekend lock*. The

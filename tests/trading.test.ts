@@ -825,3 +825,22 @@ describe('LIVE close half, trailing stop, stop recovery', () => {
     expect(writes(x.calls)).toHaveLength(0);
   });
 });
+
+describe('LIVE SuperTrend trail', () => {
+  it('moves the Vest stop onto ST1 when it is under the bid and above the stop', async () => {
+    let positions: unknown[] = [];
+    const base = vest();
+    const x = await liveSession((c) => (c.path === '/v3/positions/opened' ? { body: positions } : base(c)));
+    await x.s.enter('buy', 0.001, MKT, { bracketsOn: true, tpTicks: 0, slTicks: 20, trailLine: 1 });
+    positions = [{ ...LONG_POS, openPrice: '31451', takeProfits: [], stopLosses: [{ id: 'S1', triggerPrice: '31446' }] }];
+    x.advance(100);
+    await x.s.poll();
+    const n0 = writes(x.calls).length;
+    // ST1 up at 31448.50 (125794 ticks): above the stop 31446, under the bid
+    await x.s.onMarketTrade(125805, { ...MKT, st: { 1: { ticks: 125794, dir: 'up' } } });
+    await new Promise((r) => setTimeout(r, 0));
+    const w = writes(x.calls).slice(n0);
+    expect(w).toHaveLength(1);
+    expect(w[0]).toMatchObject({ method: 'PUT', path: '/v3/positions/stop-loss', body: { triggerPrice: '31448.5', stopLossId: 'S1' } });
+  });
+});

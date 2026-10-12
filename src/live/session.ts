@@ -15,7 +15,7 @@ import {
   type RestingOrder,
 } from '../vest/tradingShapes.js';
 import type { SymbolInfo } from '../vest/types.js';
-import { StopGuard, TrailBook } from './manage.js';
+import { StopGuard, TrailBook, type TrendLines } from './manage.js';
 import { BeWatch, scaleOrders, splitTargets, type Piece, type SkewDir, type Target } from './targets.js';
 import { DEFAULT_LIVE_SIZE_CAP, bracketTicks, breakevenTicks, liveEntryCheck, reanchorPlan, resolveLeverage, type Check } from './rules.js';
 
@@ -38,6 +38,8 @@ export interface MarketCtx {
   tick: number;
   bid: number | undefined; // ticks
   ask: number | undefined;
+  /** The SuperTrend lines on screen (for the SuperTrend trail). */
+  st?: TrendLines;
 }
 
 export interface BracketCtx {
@@ -51,6 +53,8 @@ export interface BracketCtx {
   beOffset?: number;
   /** Trailing stop: start once price is this many × risk in your favour (0/absent = off). */
   trailStartR?: number;
+  /** Trailing stop on a SuperTrend line instead: 1 = ST1, 2 = ST2 (wins over trailStartR). */
+  trailLine?: 1 | 2;
 }
 
 /** Bracket legs in ticks for one entry: a stop for the whole size, then one target or several. */
@@ -639,7 +643,7 @@ export class LiveSession {
     if (!this.tokenOk()) return no(`no Vest login: ${this.loginProblem()}`);
     const f = 10 ** m.info.sizeDecimals;
     const r = this.stops.arm(
-      { symbol: m.info.symbol, side, ticks, units: Math.round(units * f) / f, bracketsOn: br.bracketsOn, tpTicks: br.tpTicks, slTicks: br.slTicks, trailStartR: br.trailStartR, armedAt: this.deps.now() },
+      { symbol: m.info.symbol, side, ticks, units: Math.round(units * f) / f, bracketsOn: br.bracketsOn, tpTicks: br.tpTicks, slTicks: br.slTicks, trailStartR: br.trailStartR, trailLine: br.trailLine, armedAt: this.deps.now() },
       m.bid,
       m.ask,
     );
@@ -688,7 +692,7 @@ export class LiveSession {
     for (const s of fired) {
       const px = priceString(s.ticks, m.tick, m.info.priceDecimals);
       this.write(`⚡ ${s.side.toUpperCase()} STOP @ ${px} hit (trade ${priceString(priceTicks, m.tick, m.info.priceDecimals)}) — sending MARKET ${s.units}`);
-      const r = await this.enter(s.side, s.units, m, { bracketsOn: s.bracketsOn, tpTicks: s.tpTicks, slTicks: s.slTicks, trailStartR: s.trailStartR });
+      const r = await this.enter(s.side, s.units, m, { bracketsOn: s.bracketsOn, tpTicks: s.tpTicks, slTicks: s.slTicks, trailStartR: s.trailStartR, trailLine: s.trailLine });
       this.stopEvent = { ok: r.ok, message: `STOP @ ${px}: ${r.message}`, at: this.deps.now() };
       this.write(`${r.ok ? '✓' : '✗'} STOP @ ${px}: ${r.message}`);
       this.deps.onChange();
@@ -826,11 +830,18 @@ export class LiveSession {
 
   private armTrail(l: Legs, m: MarketCtx, br: BracketCtx): void {
     const start = br.trailStartR ?? 0;
-    if (!(start > 0) || l.sl === undefined || !(br.slTicks > 0)) return;
-    this.trail.arm(m.info.symbol, br.slTicks, start);
+    // The trail moves the entry's stop leg, so it needs one.
+    if (l.sl === undefined || !(br.slTicks > 0)) return;
+    if (br.trailLine) this.trail.arm(m.info.symbol, br.slTicks, 0, br.trailLine);
+    else if (start > 0) this.trail.arm(m.info.symbol, br.slTicks, start);
+    else return;
     this.trailSeen.delete(m.info.symbol);
     this.trailSent.delete(m.info.symbol);
-    this.write(`⚡ trailing stop armed on ${m.info.symbol}: starts at ${start}R, keeps 1R (${br.slTicks} ticks) behind the best price (keep this window open)`);
+    this.write(
+      br.trailLine
+        ? `⚡ trailing stop armed on ${m.info.symbol}: follows ST${br.trailLine} while it is on your side (keep this window open)`
+        : `⚡ trailing stop armed on ${m.info.symbol}: starts at ${start}R, keeps 1R (${br.slTicks} ticks) behind the best price (keep this window open)`,
+    );
   }
 
   /** A trade on the shown market: move its trailing stop if the best price has earned it. */
@@ -843,7 +854,7 @@ export class LiveSession {
     const sl = p.stopLosses[0];
     const cur = sl ? Math.round(sl.triggerPrice / m.tick) : undefined;
     const long = p.qty > 0;
-    const want = this.trail.onTrade(sym, long, p.openPrice / m.tick, priceTicks, cur);
+    const want = this.trail.onTrade(sym, long, p.openPrice / m.tick, priceTicks, cur, m.st);
     const now = this.deps.now();
     if (want === undefined || !sl || this.trailBusy || now - this.trailAt < 1000 || this.trailSent.get(sym) === want) return;
     // A stop must rest on the safe side of the market.

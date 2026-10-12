@@ -1,6 +1,6 @@
 import { bestAsk, bestBid, type Book } from '../book/book.js';
 import { splitTargets, type Target } from '../live/targets.js';
-import { trailTarget } from '../live/manage.js';
+import { lineTrailTarget, trailTarget, type TrendLines } from '../live/manage.js';
 
 // LOCAL paper broker. Fills against Vest's live quoted book in this process only — it has no
 // network access and nothing it does ever reaches Vest. It exists so the execution UI can be
@@ -53,6 +53,8 @@ export interface BracketSettings {
   beOffset?: number;
   /** Trailing stop: starts at this many × risk in your favour, keeps 1 risk behind. 0 = off. */
   trailStartR?: number;
+  /** Or a SuperTrend trail: the stop follows ST1 / ST2 (wins over trailStartR). */
+  trailLine?: 1 | 2;
 }
 
 export interface PaperConfig {
@@ -89,6 +91,8 @@ export class PaperBroker {
   /** Trailing stop for the current position: risk in ticks at entry, best exit price since. */
   private trailRisk = 0;
   private trailBest: number | undefined;
+  /** The panel's SuperTrend lines, fed by the model on every trade (SuperTrend trail). */
+  trendLines: TrendLines = {};
   private nextOrderId = 1;
   private nextFillId = 1;
 
@@ -376,7 +380,7 @@ export class PaperBroker {
     this.trailRisk = 0;
     this.trailBest = undefined;
     if (this.position.qty === 0 || !this.bracket.enabled) return;
-    if ((this.bracket.trailStartR ?? 0) > 0 && this.bracket.slTicks > 0) this.trailRisk = this.bracket.slTicks;
+    if (((this.bracket.trailStartR ?? 0) > 0 || this.bracket.trailLine) && this.bracket.slTicks > 0) this.trailRisk = this.bracket.slTicks;
     const long = this.position.qty > 0;
     const qty = Math.abs(this.position.qty);
     const avg = this.position.avgTicks;
@@ -429,7 +433,9 @@ export class PaperBroker {
     this.trailBest = this.trailBest === undefined ? px : long ? Math.max(this.trailBest, px) : Math.min(this.trailBest, px);
     const sl = this.orders.find((o) => o.leg === 'sl');
     if (!sl) return false;
-    const want = trailTarget(long, this.position.avgTicks, this.trailRisk, this.trailBest, this.bracket.trailStartR ?? 0, sl.priceTicks);
+    const want = this.bracket.trailLine
+      ? lineTrailTarget(long, this.trendLines[this.bracket.trailLine], sl.priceTicks)
+      : trailTarget(long, this.position.avgTicks, this.trailRisk, this.trailBest, this.bracket.trailStartR ?? 0, sl.priceTicks);
     if (want === undefined || (long ? want >= bid : want <= ask)) return false;
     sl.priceTicks = want;
     return true;

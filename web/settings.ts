@@ -61,6 +61,8 @@ export interface Settings {
   preview: 'off' | 'long' | 'short';
   /** Trailing stop start in R (0 = off). The panel moves the stop without a click (owner OK 2026-10-12). */
   trailStartR: number;
+  /** Or trail on a SuperTrend line: 1 = ST1 (60 s), 2 = ST2 (15 s); 0 = use trailStartR. */
+  trailLine: 0 | 1 | 2;
   /** Stop recovery: re-place a stop that disappeared from a Vest position (owner OK 2026-10-12). */
   stopGuard: boolean;
   /** Protect my day — all 0/false = off. */
@@ -115,6 +117,7 @@ export const DEFAULTS: Settings = {
   tpR: [1, 2, 0],
   preview: 'off',
   trailStartR: 0,
+  trailLine: 0,
   stopGuard: false,
   dayLossUsd: 0,
   closeAtDayLimit: false,

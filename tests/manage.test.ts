@@ -94,3 +94,22 @@ describe('protect my day', () => {
     expect(tradingDay(Date.UTC(2026, 9, 12, 22, 0))).toBe('2026-10-13');
   });
 });
+
+describe('SuperTrend trail', () => {
+  it('stop sits on the chosen line while it is on your side, only forward, ignores a flipped line', async () => {
+    const { lineTrailTarget } = await import('../src/live/manage.js');
+    expect(lineTrailTarget(true, { ticks: 95, dir: 'up' }, 90)).toBe(95);
+    expect(lineTrailTarget(true, { ticks: 93, dir: 'up' }, 95)).toBeUndefined(); // never back
+    expect(lineTrailTarget(true, { ticks: 99, dir: 'down' }, 95)).toBeUndefined(); // flipped
+    expect(lineTrailTarget(false, { ticks: 105, dir: 'down' }, 110)).toBe(105);
+    expect(lineTrailTarget(true, undefined, 90)).toBeUndefined();
+  });
+  it('TrailBook follows ST1 or ST2, whichever was picked', () => {
+    const t = new TrailBook();
+    t.arm('X', 10, 0, 2);
+    const lines = { 1: { ticks: 96, dir: 'up' as const }, 2: { ticks: 98, dir: 'up' as const } };
+    expect(t.onTrade('X', true, 100, 101, 90, lines)).toBe(98);
+    t.arm('Y', 10, 0, 1);
+    expect(t.onTrade('Y', true, 100, 101, 90, lines)).toBe(96);
+  });
+});

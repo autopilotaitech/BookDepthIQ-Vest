@@ -17,12 +17,33 @@ export function trailTarget(long: boolean, entryTicks: number, riskTicks: number
   return want;
 }
 
-/** One trailing stop per symbol: the risk captured at entry and the best price since. */
-export class TrailBook {
-  private w = new Map<string, { riskTicks: number; startR: number; best?: number; long?: boolean }>();
+/** A SuperTrend line as the panel draws it: level in ticks and direction. */
+export interface TrendLine {
+  ticks: number;
+  dir: 'up' | 'down';
+}
+/** The panel's two SuperTrend lines: 1 = ST1 (60 s candles), 2 = ST2 (15 s candles). */
+export type TrendLines = { 1?: TrendLine; 2?: TrendLine };
 
-  arm(symbol: string, riskTicks: number, startR: number): void {
-    if (riskTicks > 0 && startR > 0) this.w.set(symbol, { riskTicks, startR });
+/**
+ * SuperTrend trail: the stop sits ON the chosen line while that line is on the trade's side (an up
+ * line under a long, a down line over a short), and only ever moves your way. A flipped line is
+ * ignored: the stop stays where it was.
+ */
+export function lineTrailTarget(long: boolean, line: TrendLine | undefined, stopTicks: number | undefined): number | undefined {
+  if (!line || line.dir !== (long ? 'up' : 'down')) return undefined;
+  if (stopTicks !== undefined && (line.ticks - stopTicks) * (long ? 1 : -1) < 1) return undefined;
+  return line.ticks;
+}
+
+/** One trailing stop per symbol: the risk captured at entry and the best price since, or the
+ * SuperTrend line it follows. */
+export class TrailBook {
+  private w = new Map<string, { riskTicks: number; startR: number; line?: 1 | 2; best?: number; long?: boolean }>();
+
+  arm(symbol: string, riskTicks: number, startR: number, line?: 1 | 2): void {
+    if (line) this.w.set(symbol, { riskTicks, startR: 0, line });
+    else if (riskTicks > 0 && startR > 0) this.w.set(symbol, { riskTicks, startR });
   }
 
   clear(symbol?: string): boolean {
@@ -43,9 +64,10 @@ export class TrailBook {
   }
 
   /** A trade printed while a position is open: the stop it should have now, if it should move. */
-  onTrade(symbol: string, long: boolean, entryTicks: number, priceTicks: number, stopTicks: number | undefined): number | undefined {
+  onTrade(symbol: string, long: boolean, entryTicks: number, priceTicks: number, stopTicks: number | undefined, lines?: TrendLines): number | undefined {
     const s = this.w.get(symbol);
     if (!s) return undefined;
+    if (s.line) return lineTrailTarget(long, lines?.[s.line], stopTicks);
     if (s.long !== long) {
       s.long = long;
       s.best = undefined;
