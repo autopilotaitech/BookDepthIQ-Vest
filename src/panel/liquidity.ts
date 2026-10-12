@@ -87,7 +87,7 @@ export class LiquidityTracker {
       }
     }
     this.tradedSince.clear();
-    this.cur = next;
+    // Close every bin that ended before this book: each keeps the book as it stood at its end.
     if (this.binStart === undefined) this.binStart = now;
     // After a long quiet gap, only the last 5 minutes of bins matter.
     if (now - this.binStart > (BINS + 1) * BIN_MS) this.binStart = now - (BINS + 1) * BIN_MS;
@@ -96,6 +96,7 @@ export class LiquidityTracker {
       if (this.bins.length > BINS) this.bins.shift();
       this.binStart += BIN_MS;
     }
+    this.cur = next;
     this.maxSize = 0;
     for (const b of this.bins) for (const v of b.values()) this.maxSize = Math.max(this.maxSize, v);
     for (const v of this.cur.values()) this.maxSize = Math.max(this.maxSize, v);
@@ -111,15 +112,15 @@ export class LiquidityTracker {
     }
   }
 
-  /** Size at `price` per bin, oldest first, then now; each 0..1 of the largest size seen. */
+  /** Resting size (units) on the row `price`..`price+group−1` per 10 s bin, oldest first, then
+   * now. Raw sizes: the ladder scales them against the brightest row on screen. */
   heat(price: number, group = 1): number[] {
     const at = (m: Map<number, number>) => {
       let s = 0;
       for (let k = 0; k < group; k++) s += m.get(price + k) ?? 0;
       return s;
     };
-    const max = Math.max(1e-9, this.maxSize * group);
-    return [...this.bins.map(at), at(this.cur)].map((v) => Math.min(1, v / max));
+    return [...this.bins.map(at), at(this.cur)];
   }
 
   /**

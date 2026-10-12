@@ -1008,6 +1008,10 @@ export function App() {
 
   const rows: number[] = [];
   if (center !== null) for (let i = 0; i < nRows; i++) rows.push(center + (nRows / 2 - i) * g);
+  // Heat column: raw sizes per row, scaled against the brightest cell on screen.
+  const heatRows = s.showHeat ? new Map(rows.map((t) => [t, m.liq.heat(t, g)])) : undefined;
+  let heatMax = 1e-9;
+  if (heatRows) for (const h of heatRows.values()) for (const v of h) heatMax = Math.max(heatMax, v);
   const hi = (rows[0] ?? 0) + g - 1;
   const lo = rows[rows.length - 1] ?? 0;
 
@@ -1948,27 +1952,31 @@ export function App() {
                 {showPnl && <span className={`pnl ${pnl === undefined ? '' : pnlClass(pnl)}`}>{pnl === undefined ? '' : fmtUsd(pnl)}</span>}
                 {s.showHeat &&
                   (() => {
-                    const hm = m.liq.heat(t, g);
+                    const hm = heatRows?.get(t) ?? [];
                     const fl = m.liq.flow(t, g, ind.bigMin || 5);
                     const askSide = ask !== undefined && t >= bk(ask)!;
+                    const rgb = askSide ? '251,146,60' : '34,211,238';
                     return (
                       <span className="heat">
-                        <span className={`hstrip ${askSide ? 'a' : 'b'}`}>
-                          {hm.map((v, i) => (
-                            <i key={i} style={{ opacity: (0.06 + 0.94 * v).toFixed(2) }} />
-                          ))}
+                        <span className="abs">
+                          {fl.absorb && (
+                            <b
+                              className={fl.absorb}
+                              title={fl.absorb === 'bid' ? 'ABSORB bid: sellers kept hitting this bid (more than was showing) and it held: buyers absorbing' : 'ABSORB ask: buyers kept lifting this offer (more than was showing) and it held: sellers absorbing'}
+                            >
+                              ABS
+                            </b>
+                          )}
+                        </span>
+                        <span className="hstrip" title={`resting size over the last 5 min, left = older (now ${fmtVol(hm.at(-1) ?? 0)})`}>
+                          {hm.map((v, i) => {
+                            const x = v / heatMax;
+                            return <i key={i} style={x <= 0 ? undefined : { background: x >= 0.8 ? `rgba(253,230,138,${(0.55 + 0.45 * x).toFixed(2)})` : `rgba(${rgb},${(0.12 + 0.88 * Math.pow(x, 0.7)).toFixed(2)})` }} />;
+                          })}
                         </span>
                         <em className={fl.net > 0 ? 'stk' : fl.net < 0 ? 'pul' : ''} title={`last minute: pulled ${fmtVol(fl.pulled)} · stacked ${fmtVol(fl.stacked)} · traded ${fmtVol(fl.traded)}`}>
                           {fl.signal && Math.abs(fl.net) >= 0.01 ? `${fl.net > 0 ? '+' : '−'}${fmtVol(Math.abs(fl.net))}` : ''}
                         </em>
-                        {fl.absorb && (
-                          <b
-                            className={`absorb ${fl.absorb}`}
-                            title={fl.absorb === 'bid' ? 'sellers kept hitting this bid (more than was showing) and it held: buyers absorbing' : 'buyers kept lifting this offer (more than was showing) and it held: sellers absorbing'}
-                          >
-                            ABSORB {fl.absorb}
-                          </b>
-                        )}
                       </span>
                     );
                   })()}

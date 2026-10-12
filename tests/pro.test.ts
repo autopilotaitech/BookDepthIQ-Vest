@@ -71,14 +71,12 @@ describe('liquidity: heat, pull/stack, absorb', () => {
     expect(l.absorb(100, 1, 5)).toBeUndefined(); // 6 sold, but 30 was showing
   });
 
-  it('heat keeps one bin per 10 s, scaled to the largest size', () => {
+  it('heat keeps one bin per 10 s, raw sizes summed over the row', () => {
     const l = new LiquidityTracker();
-    l.onBook(book([[100, 5]], []), 0);
-    l.onBook(book([[100, 10]], []), BIN_MS);
+    l.onBook(book([[100, 5], [101, 2]], []), 0);
+    l.onBook(book([[100, 10], [101, 2]], []), BIN_MS);
     l.onBook(book([[100, 0]], []), 2 * BIN_MS);
-    const h = l.heat(100);
-    expect(h.at(-1)).toBe(0);
-    expect(Math.max(...h)).toBe(1);
+    expect(l.heat(100, 2)).toEqual([7, 12, 0]); // bins end-of-bin: 5+2, 10+2; now 0
   });
 });
 
