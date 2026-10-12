@@ -1008,10 +1008,6 @@ export function App() {
 
   const rows: number[] = [];
   if (center !== null) for (let i = 0; i < nRows; i++) rows.push(center + (nRows / 2 - i) * g);
-  // Heat column: raw sizes per row, scaled against the brightest cell on screen.
-  const heatRows = s.showHeat ? new Map(rows.map((t) => [t, m.liq.heat(t, g)])) : undefined;
-  let heatMax = 1e-9;
-  if (heatRows) for (const h of heatRows.values()) for (const v of h) heatMax = Math.max(heatMax, v);
   const hi = (rows[0] ?? 0) + g - 1;
   const lo = rows[rows.length - 1] ?? 0;
 
@@ -1028,7 +1024,7 @@ export function App() {
   const failRow = failTicksPos;
   // v0.8 ladder columns: buy · sold · bid liq · price · ask liq · bought · sell · [P&L] · profile · [Δ]
   const showPnl = pos.qty !== 0;
-  const cols = ['0.5fr', '0.62fr', '0.9fr', '1fr', '0.9fr', '0.62fr', '0.5fr', ...(showPnl ? ['0.7fr'] : []), ...(s.showHeat ? ['1fr'] : []), '1.35fr', ...(s.showDelta ? ['0.7fr'] : [])].join(' ');
+  const cols = ['0.5fr', '0.62fr', '0.9fr', '1fr', '0.9fr', '0.62fr', '0.5fr', ...(showPnl ? ['0.7fr'] : []), '1.35fr', ...(s.showDelta ? ['0.7fr'] : [])].join(' ');
   const gridStyle = { gridTemplateColumns: cols };
   // Header sparkline of session cumulative delta (last 120 trades).
   const spark = (() => {
@@ -1841,11 +1837,6 @@ export function App() {
             <span title="volume that lifted the ask at this price (buyers). Lit = buyers outweigh sellers diagonally by the imbalance ratio">bought</span>
             <span>sell</span>
             {showPnl && <span>P&amp;L</span>}
-            {s.showHeat && (
-              <span title="resting size at each price over the last 5 minutes (left = older, brighter = more size), then pull/stack over the last minute: − = size pulled without trading, + = size stacked. ABSORB = traded a lot while its size kept coming back.">
-                heat 5m · pull/stack
-              </span>
-            )}
             <span title="volume profile since the panel opened: orange = sold at bid, cyan = bought at ask · POC outlined · value area bright">volume profile</span>
             {s.showDelta && (
               <span title="Δ = bought − sold at each price. Click to hide." className={`dhead ${m.cumDelta >= 0 ? 'up' : 'dn'}`} onClick={() => update({ showDelta: false })}>
@@ -1935,6 +1926,18 @@ export function App() {
                   {t === bk(failRow) && <b className="failtag">FAIL</b>}
                   {st1 && t === bk(st1.ticks) && <b className={`sttag st1 ${st1.dir}`}>{st1.dir === 'up' ? '▲' : '▼'} ST1</b>}
                   {st2 && t === bk(st2.ticks) && <b className={`sttag st2 ${st2.dir}`}>{st2.dir === 'up' ? '▲' : '▼'} ST2</b>}
+                  {s.showHeat &&
+                    (() => {
+                      const ab = m.liq.absorb(t, g, ind.bigMin || 5);
+                      return ab ? (
+                        <b
+                          className={`abstag ${ab}`}
+                          title={ab === 'bid' ? 'ABSORB bid: in the last minute sellers kept hitting this bid (more than was showing) and it held: buyers absorbing' : 'ABSORB ask: in the last minute buyers kept lifting this offer (more than was showing) and it held: sellers absorbing'}
+                        >
+                          ABS
+                        </b>
+                      ) : null;
+                    })()}
                 </span>
                 <span
                   className="size ask liq"
@@ -1950,36 +1953,6 @@ export function App() {
                   {ordersAt(t, 'sell').map(orderChip)}
                 </span>
                 {showPnl && <span className={`pnl ${pnl === undefined ? '' : pnlClass(pnl)}`}>{pnl === undefined ? '' : fmtUsd(pnl)}</span>}
-                {s.showHeat &&
-                  (() => {
-                    const hm = heatRows?.get(t) ?? [];
-                    const fl = m.liq.flow(t, g, ind.bigMin || 5);
-                    const askSide = ask !== undefined && t >= bk(ask)!;
-                    const rgb = askSide ? '251,146,60' : '34,211,238';
-                    return (
-                      <span className="heat">
-                        <span className="abs">
-                          {fl.absorb && (
-                            <b
-                              className={fl.absorb}
-                              title={fl.absorb === 'bid' ? 'ABSORB bid: sellers kept hitting this bid (more than was showing) and it held: buyers absorbing' : 'ABSORB ask: buyers kept lifting this offer (more than was showing) and it held: sellers absorbing'}
-                            >
-                              ABS
-                            </b>
-                          )}
-                        </span>
-                        <span className="hstrip" title={`resting size over the last 5 min, left = older (now ${fmtVol(hm.at(-1) ?? 0)})`}>
-                          {hm.map((v, i) => {
-                            const x = v / heatMax;
-                            return <i key={i} style={x <= 0 ? undefined : { background: x >= 0.8 ? `rgba(253,230,138,${(0.55 + 0.45 * x).toFixed(2)})` : `rgba(${rgb},${(0.12 + 0.88 * Math.pow(x, 0.7)).toFixed(2)})` }} />;
-                          })}
-                        </span>
-                        <em className={fl.net > 0 ? 'stk' : fl.net < 0 ? 'pul' : ''} title={`last minute: pulled ${fmtVol(fl.pulled)} · stacked ${fmtVol(fl.stacked)} · traded ${fmtVol(fl.traded)}`}>
-                          {fl.signal && Math.abs(fl.net) >= 0.01 ? `${fl.net > 0 ? '+' : '−'}${fmtVol(Math.abs(fl.net))}` : ''}
-                        </em>
-                      </span>
-                    );
-                  })()}
                 <span className={`prof ${volCls}`} title={t === prof.poc ? 'POC — most traded price this session' : volCls === 'va' ? 'inside the 70% value area' : undefined}>
                   <span className="ptrack">
                     {v !== undefined && (
@@ -2031,8 +2004,8 @@ export function App() {
               <button className={`mini ${s.showJournal ? 'on' : ''}`} title="trade journal: every trade with its setup, risk, result and R" onClick={() => update({ showJournal: !s.showJournal })}>
                 journal
               </button>
-              <button className={`mini ${s.showHeat ? 'on' : ''}`} title="heatmap + pull/stack column on the ladder" onClick={() => update({ showHeat: !s.showHeat })}>
-                heat
+              <button className={`mini ${s.showHeat ? 'on' : ''}`} title="ABS tags on the price column: a level one side kept hitting (more than was showing) that held" onClick={() => update({ showHeat: !s.showHeat })}>
+                abs
               </button>
               <button className="mini" title={s.showLog ? 'hide the log: tape only' : 'show the PAPER / LIVE request log under the tape'} onClick={() => update({ showLog: !s.showLog })}>
                 {s.showLog ? 'hide log' : 'log'}

@@ -510,16 +510,9 @@ b { font-weight: 600; }
 .blotter .s-rejected b, .blotter .s-no-answer b { color: #f87171; }
 .blotter .bnote { color: #f87171; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .chip .cst { font-style: normal; opacity: 0.8; }
-.lrow .heat { display: grid; grid-template-columns: 30px 1fr 3.4em; align-items: center; gap: 4px; padding: 0 4px; overflow: hidden; }
-.lrow .heat .abs { display: flex; justify-content: center; }
-.lrow .heat .abs b { font-size: 9px; font-weight: 700; line-height: 13px; padding: 0 4px; border-radius: 3px; color: #04121a; }
-.lrow .heat .abs b.bid { background: #22d3ee; }
-.lrow .heat .abs b.ask { background: #fb923c; }
-.lrow .heat .hstrip { display: flex; height: calc(var(--row-h, 22px) - 4px); max-height: 18px; gap: 1px; }
-.lrow .heat .hstrip i { flex: 1 1 0; height: 100%; border-radius: 1px; }
-.lrow .heat em { font-style: normal; font-size: 10px; text-align: right; color: var(--muted); }
-.lrow .heat em.stk { color: #34d399; }
-.lrow .heat em.pul { color: #f87171; }
+.lrow .abstag { margin-left: 4px; font-size: 9px; font-weight: 700; line-height: 13px; padding: 0 4px; border-radius: 3px; color: #04121a; }
+.lrow .abstag.bid { background: #22d3ee; }
+.lrow .abstag.ask { background: #fb923c; }
 .lockbar { background: #3a0d12; color: #fecaca; border: 1px solid #ef4444; border-radius: 4px; padding: 4px 8px; margin-bottom: 4px; font-size: 12px; }
 .noticebar { background: #1d1405; color: #fde68a; border: 1px solid #b45309; border-radius: 4px; padding: 4px 8px; margin-bottom: 4px; font-size: 12px; cursor: pointer; }
 .checks { display: flex; flex-wrap: wrap; gap: 2px 12px; font-size: 11px; margin: 2px 0; }
