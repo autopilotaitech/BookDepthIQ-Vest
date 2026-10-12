@@ -46,6 +46,12 @@ export class TrailBook {
     else if (riskTicks > 0 && startR > 0) this.w.set(symbol, { riskTicks, startR });
   }
 
+  /** How `symbol`'s trail is set (undefined = none). */
+  config(symbol: string): { startR: number; line?: 1 | 2 } | undefined {
+    const s = this.w.get(symbol);
+    return s ? { startR: s.startR, line: s.line } : undefined;
+  }
+
   clear(symbol?: string): boolean {
     if (symbol === undefined) {
       const n = this.w.size;

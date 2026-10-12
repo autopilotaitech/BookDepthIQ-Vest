@@ -844,3 +844,17 @@ describe('LIVE SuperTrend trail', () => {
     expect(w[0]).toMatchObject({ method: 'PUT', path: '/v3/positions/stop-loss', body: { triggerPrice: '31448.5', stopLossId: 'S1' } });
   });
 });
+
+describe('LIVE trail set mid-trade', () => {
+  it('setTrail arms the open position; off ends it', async () => {
+    const pos = { ...LONG_POS, openPrice: '31451', takeProfits: [], stopLosses: [{ id: 'S1', triggerPrice: '31446' }] };
+    const { s, calls } = await liveSession(vest({ positions: [pos] }));
+    s.setTrail(MKT, 0, 2);
+    expect(s.trail.config('NDX-USD-PERP')).toEqual({ startR: 0, line: 2 });
+    await s.onMarketTrade(125805, { ...MKT, st: { 2: { ticks: 125794, dir: 'up' } } });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(writes(calls).at(-1)).toMatchObject({ method: 'PUT', path: '/v3/positions/stop-loss', body: { triggerPrice: '31448.5' } });
+    s.setTrail(MKT, 0, undefined);
+    expect(s.trail.size).toBe(0);
+  });
+});

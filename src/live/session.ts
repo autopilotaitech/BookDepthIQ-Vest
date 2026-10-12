@@ -844,6 +844,32 @@ export class LiveSession {
     );
   }
 
+  /**
+   * The trail menu, applied to the OPEN position on `m`'s symbol: arms (or changes) its trail, or
+   * ends it when set to off. Risk for the xR trail = the position's current entry → stop distance.
+   */
+  setTrail(m: MarketCtx, startR: number, line: 1 | 2 | undefined): void {
+    const sym = m.info.symbol;
+    const p = this.positionFor(sym);
+    if (!p || this.mode !== 'live') return;
+    const cur = this.trail.config(sym);
+    if (!line && !(startR > 0)) {
+      if (cur && this.trail.clear(sym)) this.write(`trailing stop on ${sym} turned off`);
+      return;
+    }
+    if (cur && cur.line === line && cur.startR === (line ? 0 : startR)) return;
+    const sl = p.stopLosses[0];
+    if (!sl) {
+      this.write(`! trailing stop on ${sym} needs a stop on the position — add one (B/E or drag), then pick the trail again`);
+      return;
+    }
+    const risk = Math.max(1, Math.round(Math.abs(p.openPrice - sl.triggerPrice) / m.tick));
+    this.trail.arm(sym, risk, line ? 0 : startR, line);
+    this.trailSent.delete(sym);
+    this.trailSeen.add(sym);
+    this.write(line ? `⚡ trailing stop on ${sym} now follows ST${line} (keep this window open)` : `⚡ trailing stop on ${sym}: from ${startR}R, 1R = ${risk} ticks (keep this window open)`);
+  }
+
   /** A trade on the shown market: move its trailing stop if the best price has earned it. */
   private async trailOnTrade(priceTicks: number, m: MarketCtx): Promise<void> {
     const sym = m.info.symbol;

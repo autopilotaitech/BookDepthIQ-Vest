@@ -293,3 +293,18 @@ describe('SuperTrend trail (paper)', () => {
     expect(b.orders.find((o) => o.leg === 'sl')!.priceTicks).toBe(99);
   });
 });
+
+describe('trail turned on mid-trade (paper)', () => {
+  it('picking ST2 after the entry starts trailing the open position', () => {
+    const b = new PaperBroker(CFG);
+    b.bracket = { enabled: true, tpTicks: 0, slTicks: 4 };
+    b.onBook(book(100, 102));
+    b.marketOrder('buy', 1); // SL 98, no trail yet
+    b.trendLines = { 2: { ticks: 99, dir: 'up' } };
+    b.onBook(book(101, 103));
+    expect(b.orders.find((o) => o.leg === 'sl')!.priceTicks).toBe(98);
+    b.bracket = { ...b.bracket, trailLine: 2 };
+    b.onBook(book(101, 103));
+    expect(b.orders.find((o) => o.leg === 'sl')!.priceTicks).toBe(99);
+  });
+});

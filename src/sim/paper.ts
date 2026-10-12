@@ -425,17 +425,22 @@ export class PaperBroker {
   /** Trailing stop: follow the best exit price at one risk behind. True if the stop moved. */
   private trailStep(): boolean {
     const q = this.position.qty;
-    if (q === 0 || !(this.trailRisk > 0) || !this.hasBook) return false;
+    if (q === 0 || !this.hasBook) return false;
     const long = q > 0;
     const bid = bestBid(this.book!)!;
     const ask = bestAsk(this.book!)!;
     const px = long ? bid : ask;
     this.trailBest = this.trailBest === undefined ? px : long ? Math.max(this.trailBest, px) : Math.min(this.trailBest, px);
+    // The trail menu applies to the open position as it is NOW, even if turned on after the entry.
+    const line = this.bracket.trailLine;
+    const startR = this.bracket.trailStartR ?? 0;
+    if (!line && !(startR > 0)) return false;
     const sl = this.orders.find((o) => o.leg === 'sl');
     if (!sl) return false;
-    const want = this.bracket.trailLine
-      ? lineTrailTarget(long, this.trendLines[this.bracket.trailLine], sl.priceTicks)
-      : trailTarget(long, this.position.avgTicks, this.trailRisk, this.trailBest, this.bracket.trailStartR ?? 0, sl.priceTicks);
+    if (!(this.trailRisk > 0)) this.trailRisk = Math.max(1, Math.round(Math.abs(this.position.avgTicks - sl.priceTicks)));
+    const want = line
+      ? lineTrailTarget(long, this.trendLines[line], sl.priceTicks)
+      : trailTarget(long, this.position.avgTicks, this.trailRisk, this.trailBest, startR, sl.priceTicks);
     if (want === undefined || (long ? want >= bid : want <= ask)) return false;
     sl.priceTicks = want;
     return true;

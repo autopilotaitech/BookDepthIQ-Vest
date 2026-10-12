@@ -669,6 +669,12 @@ export function App() {
   useEffect(() => {
     L.stopGuardOn = s.stopGuard;
   }, [L, s.stopGuard]);
+  // The trail menu applies to the position you are in now, not only to the next entry.
+  const hasLivePos = !!lpos;
+  useEffect(() => {
+    const c = m.marketCtx();
+    if (live && hasLivePos && c) L.setTrail(c, s.trailLine ? 0 : s.trailStartR, s.trailLine || undefined);
+  }, [L, m, live, hasLivePos, m.info?.symbol, s.trailStartR, s.trailLine]);
 
   /** Close half: an exit, never gated. */
   const closeHalfNow = () => {
