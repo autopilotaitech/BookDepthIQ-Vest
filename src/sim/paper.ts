@@ -1,4 +1,5 @@
 import { bestAsk, bestBid, type Book } from '../book/book.js';
+import { splitTargets, type Target } from '../live/targets.js';
 
 // LOCAL paper broker. Fills against Vest's live quoted book in this process only — it has no
 // network access and nothing it does ever reaches Vest. It exists so the execution UI can be
@@ -44,6 +45,11 @@ export interface BracketSettings {
   enabled: boolean;
   tpTicks: number; // 0 = no take-profit leg
   slTicks: number; // 0 = no stop-loss leg
+  /** TP1..TP3 + size split; 2 or more on = partial targets instead of the one tpTicks leg. */
+  targets?: Target[];
+  /** With partial targets: stop to entry ± beOffset once TP1 fills. */
+  beAfterTp1?: boolean;
+  beOffset?: number;
 }
 
 export interface PaperConfig {
@@ -75,6 +81,8 @@ export class PaperBroker {
   bracket: BracketSettings = { enabled: true, tpTicks: 0, slTicks: 0 };
 
   private book: Book | null = null;
+  /** B/E after TP1 already done for the current position. */
+  private beDone = false;
   private nextOrderId = 1;
   private nextFillId = 1;
 
@@ -258,7 +266,7 @@ export class PaperBroker {
       const before = this.position.qty;
       if (due.type === 'limit') this.applyFill(due.side, qty, due.priceTicks, due.id, 'maker', now, due.leg ?? 'limit');
       else this.executeMarket(due.side, qty, due.id, now, due.leg ?? 'stop');
-      if (due.leg) this.onBracketLegFilled();
+      if (due.leg) this.onBracketLegFilled(due.leg);
       else this.afterEntryFill(before);
     }
   }
@@ -332,14 +340,19 @@ export class PaperBroker {
   private afterEntryFill(before: number): void {
     if (this.position.qty === before) return;
     this.dropProtectiveLegs();
+    this.beDone = false;
     if (this.position.qty === 0 || !this.bracket.enabled) return;
     const long = this.position.qty > 0;
     const qty = Math.abs(this.position.qty);
     const avg = this.position.avgTicks;
     const exit: Side = long ? 'sell' : 'buy';
-    if (this.bracket.tpTicks > 0) {
-      const tp = long ? Math.ceil(avg) + this.bracket.tpTicks : Math.floor(avg) - this.bracket.tpTicks;
-      this.orders.push({ id: this.nextOrderId++, side: exit, type: 'limit', priceTicks: tp, qty, reduceOnly: true, leg: 'tp' });
+    const on = (this.bracket.targets ?? []).filter((t) => t.ticks > 0);
+    const split = on.length >= 2 ? splitTargets(qty, this.cfg.sizeDecimals, on) : undefined;
+    // An unsplittable size falls back to the one TP1 leg (the ticket shows why in red).
+    const tps = split?.ok ? split.legs : this.bracket.tpTicks > 0 ? [{ ticks: this.bracket.tpTicks, qty }] : [];
+    for (const l of tps) {
+      const tp = long ? Math.ceil(avg) + l.ticks : Math.floor(avg) - l.ticks;
+      this.orders.push({ id: this.nextOrderId++, side: exit, type: 'limit', priceTicks: tp, qty: l.qty, reduceOnly: true, leg: 'tp' });
     }
     if (this.bracket.slTicks > 0) {
       const sl = long ? Math.floor(avg) - this.bracket.slTicks : Math.ceil(avg) + this.bracket.slTicks;
@@ -347,14 +360,27 @@ export class PaperBroker {
     }
   }
 
-  /** One bracket leg filled: OCO the other, and resize survivors to what is left. */
-  private onBracketLegFilled(): void {
+  /** One bracket leg filled: OCO the other, and resize survivors to what is left. A first TP fill
+   * moves the stop to entry ± offset when B/E after TP1 is on. */
+  private onBracketLegFilled(leg: 'tp' | 'sl'): void {
     if (this.position.qty === 0) {
       this.dropProtectiveLegs();
       return;
     }
     const left = Math.abs(this.position.qty);
     for (const o of this.orders) if (o.reduceOnly) o.qty = Math.min(o.qty, left);
+    if (leg !== 'tp' || this.beDone || !this.bracket.beAfterTp1) return;
+    this.beDone = true;
+    const long = this.position.qty > 0;
+    const avg = this.position.avgTicks;
+    const off = this.bracket.beOffset ?? 0;
+    const stop = long ? Math.floor(avg) + off : Math.ceil(avg) - off;
+    const bid = bestBid(this.book!)!;
+    const ask = bestAsk(this.book!)!;
+    if (long ? stop >= bid : stop <= ask) return; // already through the market: keep the stop where it is
+    const sl = this.orders.find((o) => o.leg === 'sl');
+    if (sl) sl.priceTicks = stop;
+    else this.orders.push({ id: this.nextOrderId++, side: long ? 'sell' : 'buy', type: 'stop', priceTicks: stop, qty: left, reduceOnly: true, leg: 'sl' });
   }
 
   /**

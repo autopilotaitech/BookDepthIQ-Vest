@@ -13,6 +13,8 @@ import { fundingUsdPerHour, nextSettlement } from '../src/panel/funding';
 import { buildProfile } from '../src/panel/profile';
 import { watchHookStatus, watchUserToken, watchVestTabs } from './liveToken';
 import { liveOpenPnl } from '../src/live/rules';
+import { parseSplit, scaleOrders, splitTargets, type SkewDir, type Target } from '../src/live/targets';
+import type { BracketCtx } from '../src/live/session';
 
 const ROW_PX = 22;
 
@@ -63,6 +65,68 @@ function PointsInput(props: { ticks: number; tick: number; signed?: boolean; onT
       }}
       onBlur={() => setEditing(false)}
     />
+  );
+}
+
+/**
+ * In a trade: SL, entry, now and every target on one bar, with $ at each. Display only. Legs are
+ * Vest's own in LIVE and the paper broker's in PAPER.
+ */
+function BracketBar(props: { long: boolean; qty: number; avgTicks: number; nowTicks: number | undefined; legs: WorkingOrder[]; fail: number | undefined; tick: number }) {
+  const { long, qty, avgTicks, nowTicks, legs, fail, tick } = props;
+  const dir = long ? 1 : -1;
+  const usd = (t: number, q: number) => (t - avgTicks) * dir * q * tick;
+  const tps = legs.filter((l) => l.leg === 'tp').sort((a, b) => (a.priceTicks - b.priceTicks) * dir);
+  const sls = legs.filter((l) => l.leg === 'sl');
+  const pts = [avgTicks, ...legs.map((l) => l.priceTicks), ...(nowTicks !== undefined ? [nowTicks] : [])];
+  let lo = Math.min(...pts);
+  let hi = Math.max(...pts);
+  if (hi - lo < 4) {
+    lo -= 2;
+    hi += 2;
+  }
+  // Left = the losing side, right = the winning side, for longs and shorts alike.
+  const x = (t: number) => `${(((long ? t - lo : hi - t) / (hi - lo)) * 92 + 4).toFixed(2)}%`;
+  const open = nowTicks === undefined ? undefined : usd(nowTicks, qty);
+  const sl = sls[0];
+  const risk = sl ? usd(sl.priceTicks, qty) : undefined;
+  return (
+    <section className="brbar">
+      <div className="brhead">
+        <b className={long ? 'pos' : 'neg'}>{long ? 'LONG' : 'SHORT'}</b> {qty}
+        {open !== undefined && (
+          <>
+            {' '}
+            <b className={pnlClass(open)}>{fmtUsd(open)}</b> <small>{(((nowTicks! - avgTicks) * dir) * tick).toFixed(2)} pts</small>
+          </>
+        )}
+        <small>{risk === undefined ? ' · no stop on this position' : ` · at stop ${fmtUsd(risk)}`}</small>
+        {fail !== undefined && <small> · fail {formatPrice(fail, tick)}</small>}
+      </div>
+      <div className="brtrack">
+        {sl && <i className="zone loss" style={{ left: long ? x(sl.priceTicks) : x(avgTicks), right: `calc(100% - ${long ? x(avgTicks) : x(sl.priceTicks)})` }} />}
+        {tps.length > 0 && <i className="zone win" style={{ left: long ? x(avgTicks) : x(tps.at(-1)!.priceTicks), right: `calc(100% - ${long ? x(tps.at(-1)!.priceTicks) : x(avgTicks)})` }} />}
+        {sls.map((l) => (
+          <span key={l.id} className="mk sl" style={{ left: x(l.priceTicks) }}>
+            <em>SL {formatPrice(l.priceTicks, tick)}</em>
+            <small>{fmtUsd(usd(l.priceTicks, qty))}</small>
+          </span>
+        ))}
+        <span className="mk in" style={{ left: x(avgTicks) }}>
+          <em>IN {formatPrice(Math.round(avgTicks), tick)}</em>
+        </span>
+        {tps.map((l, i) => (
+          <span key={l.id} className="mk tp" style={{ left: x(l.priceTicks) }}>
+            <em>TP{tps.length > 1 ? i + 1 : ''} {formatPrice(l.priceTicks, tick)}</em>
+            <small>
+              {fmtUsd(usd(l.priceTicks, Math.min(l.qty, qty)))}
+              {tps.length > 1 ? ` · ${l.qty}u` : ''}
+            </small>
+          </span>
+        ))}
+        {nowTicks !== undefined && <span className="mk now" style={{ left: x(nowTicks) }} title={`now ${formatPrice(nowTicks, tick)}`} />}
+      </div>
+    </section>
   );
 }
 
@@ -152,10 +216,17 @@ export function App() {
   }, [m, update]);
 
   // Bracket settings are the user's numbers, applied to the paper broker as they change.
+  // TP1 is the TP pts box; TP2/TP3 and the split turn it into partial targets.
+  const split = parseSplit(s.tpSplit);
+  const targets: Target[] = [s.tpTicks, s.tp2Ticks, s.tp3Ticks].map((ticks, i) => ({ ticks, pct: split[i] ?? 0 }));
+  const multiTp = targets.filter((t) => t.ticks > 0).length >= 2;
+  const br: BracketCtx = { bracketsOn: s.bracketsOn, tpTicks: s.tpTicks, slTicks: s.slTicks, targets, beAfterTp1: multiTp && s.beAfterTp1, beOffset: s.beOffset };
+  const brKey = JSON.stringify(br);
   const broker = m.broker;
   useEffect(() => {
-    if (broker) broker.bracket = { enabled: s.bracketsOn, tpTicks: s.tpTicks, slTicks: s.slTicks };
-  }, [broker, s.bracketsOn, s.tpTicks, s.slTicks]);
+    const b = JSON.parse(brKey) as BracketCtx;
+    if (broker) broker.bracket = { enabled: b.bracketsOn, tpTicks: b.tpTicks, slTicks: b.slTicks, targets: b.targets, beAfterTp1: b.beAfterTp1, beOffset: b.beOffset };
+  }, [broker, brKey]);
 
   useEffect(() => {
     m.account = { startEquity: s.startEquity, maxDrawdownUsd: s.maxDrawdownUsd, leverage: s.leverage };
@@ -397,7 +468,7 @@ export function App() {
   const legSide: Side = (lpos?.qty ?? 0) > 0 ? 'sell' : 'buy';
   const liveLegs: WorkingOrder[] = lpos
     ? [
-        ...lpos.takeProfits.map((l, i) => ({ id: -1 - i, side: legSide, type: 'limit' as const, priceTicks: Math.round(l.triggerPrice / tick), qty: Math.abs(lpos.qty), reduceOnly: true, leg: 'tp' as const })),
+        ...lpos.takeProfits.map((l, i) => ({ id: -1 - i, side: legSide, type: 'limit' as const, priceTicks: Math.round(l.triggerPrice / tick), qty: l.quantity ?? Math.abs(lpos.qty), reduceOnly: true, leg: 'tp' as const })),
         ...lpos.stopLosses.map((l, i) => ({ id: -100 - i, side: legSide, type: 'stop' as const, priceTicks: Math.round(l.triggerPrice / tick), qty: Math.abs(lpos.qty), reduceOnly: true, leg: 'sl' as const })),
       ]
     : [];
@@ -426,19 +497,37 @@ export function App() {
       const c = m.marketCtx();
       // Vest has no stop entry type: the panel holds the stop and fires a MARKET entry (stops.ts).
       if (stop) {
-        if (c) act(L.armStop(side, t, units, c, { bracketsOn: s.bracketsOn, tpTicks: s.tpTicks, slTicks: s.slTicks }));
+        if (c) act(L.armStop(side, t, units, c, br));
         return;
       }
-      if (c) actAsync(L.enterLimit(side, units, t, c, { bracketsOn: s.bracketsOn, tpTicks: s.tpTicks, slTicks: s.slTicks }));
+      if (s.scaleOn) {
+        if (c) actAsync(L.enterScale(side, units, t, scaleEnd(side, t), s.scaleCount, s.scaleSkew, s.scaleDir, c));
+        return;
+      }
+      if (c) actAsync(L.enterLimit(side, units, t, c, br));
       return;
     }
     if (!broker) return;
+    if (!stop && s.scaleOn) {
+      const end = scaleEnd(side, t);
+      const plan = scaleOrders(units, sizeDec, t, end, s.scaleCount, s.scaleSkew, s.scaleDir);
+      if (!plan.ok) return act({ ok: false, message: plan.message });
+      act(
+        m.guarded(side, units, Math.max(t, end) * tick, () => {
+          const bad = plan.legs.map((l) => broker.limitOrder(side, l.qty, l.ticks)).filter((r) => !r.ok);
+          return bad.length ? { ok: false, message: bad.map((r) => r.message).join('; ') } : { ok: true, message: `SCALE ${side.toUpperCase()} ${units} in ${plan.legs.length} limits ${px(t)} → ${px(end)}` };
+        }),
+      );
+      return;
+    }
     act(m.guarded(side, units, t * tick, () => (stop ? broker.stopOrder(side, units, t) : broker.limitOrder(side, units, t))));
   };
+  /** A scale runs from the clicked price AWAY from the market: down for buys, up for sells. */
+  const scaleEnd = (side: Side, t: number) => t + (side === 'buy' ? -1 : 1) * s.scaleSpanTicks;
   const market = (side: Side) => {
     if (live) {
       const c = m.marketCtx();
-      if (c) actAsync(L.enter(side, units, c, { bracketsOn: s.bracketsOn, tpTicks: s.tpTicks, slTicks: s.slTicks }));
+      if (c) actAsync(L.enter(side, units, c, br));
       return;
     }
     if (!broker) return;
@@ -743,6 +832,19 @@ export function App() {
               </span>
             )}
           </div>
+          {(() => {
+            // Room to the fail floor, live: full bar = the account's whole drawdown allowance.
+            const room = Math.max(0, equity - floor);
+            const full = Math.max(room, (L.account?.initialCapital ?? 0) - floor);
+            if (!(full > 0) || L.floor() === undefined) return null;
+            const f = room / full;
+            return (
+              <div className="roombar" title={`$${room.toFixed(2)} of $${full.toFixed(2)} left before the account fails (open P&L on this market included)`}>
+                <i className={f < 0.25 ? 'low' : f < 0.5 ? 'mid' : ''} style={{ width: `${(f * 100).toFixed(1)}%` }} />
+                <span>room to floor ${room.toFixed(2)} · {(f * 100).toFixed(0)}%</span>
+              </div>
+            );
+          })()}
         </section>
       )}
 
@@ -970,6 +1072,8 @@ export function App() {
         )}
       </section>
 
+      {pos.qty !== 0 && <BracketBar long={pos.qty > 0} qty={Math.abs(pos.qty)} avgTicks={pos.avgTicks} nowTicks={pos.qty > 0 ? bid : ask} legs={orders.filter((o) => o.leg)} fail={failRow} tick={tick} />}
+
       {vestElsewhere.length > 0 && (
         <div className="exposure vest">
           {live ? 'Also open on Vest:' : 'Vest LIVE still holds:'}{' '}
@@ -1072,10 +1176,10 @@ export function App() {
                   if (sid !== undefined) act(same ? L.cancelStop(sid) : L.moveStop(sid, t, c));
                 } else if (c && drag.id <= -1000) {
                   const oid = liveOrderIds[-1000 - drag.id];
-                  if (oid) actAsync(same ? L.cancelOrder(oid) : L.moveOrder(oid, t, c, { bracketsOn: s.bracketsOn, tpTicks: s.tpTicks, slTicks: s.slTicks }));
+                  if (oid) actAsync(same ? L.cancelOrder(oid) : L.moveOrder(oid, t, c, br));
                 } else if (c && !same && drag.id < 0) {
-                  // legs: -1-i = TP, -100-i = SL. Dropping a leg on its own row does nothing.
-                  actAsync(L.moveLeg(drag.id > -100 ? 'tp' : 'sl', t, c));
+                  // legs: -1-i = TP i, -100-i = SL i. Dropping a leg on its own row does nothing.
+                  actAsync(drag.id > -100 ? L.moveLeg('tp', t, c, -1 - drag.id) : L.moveLeg('sl', t, c, -100 - drag.id));
                 }
                 setDrag(null);
                 return;
@@ -1262,6 +1366,55 @@ export function App() {
             HOTKEYS {armed ? 'ARMED' : 'SAFE'}
           </button>
         </div>
+        <div className="fields more">
+          <label className={s.bracketsOn ? '' : 'dim'} title="second target, further than TP1 (0 = off)">
+            TP2
+            <PointsInput ticks={s.tp2Ticks} tick={tick} onTicks={(t) => update({ tp2Ticks: t })} />
+          </label>
+          <label className={s.bracketsOn ? '' : 'dim'} title="third target, further than TP2 (0 = off)">
+            TP3
+            <PointsInput ticks={s.tp3Ticks} tick={tick} onTicks={(t) => update({ tp3Ticks: t })} />
+          </label>
+          {multiTp && (
+            <>
+              <label title="share of the size at TP1 / TP2 / TP3, in %">
+                split
+                <input type="text" className="wide" defaultValue={s.tpSplit} onBlur={(e) => update({ tpSplit: e.target.value.trim() })} />
+              </label>
+              <label title="when TP1 fills, the panel moves your stop to entry ± the B/E offset — once, while this window is open (in LIVE it sends that stop move without a click)">
+                <input type="checkbox" checked={s.beAfterTp1} onChange={(e) => update({ beAfterTp1: e.target.checked })} /> B/E after TP1
+              </label>
+            </>
+          )}
+          <button
+            className={`toggle ${s.scaleOn ? 'on' : ''}`}
+            title="SCALE ON: a ladder click places several limits from that price, further away from the market, like Vest's Scale ticket. Shift-click is still a stop. Scale orders carry no TP/SL (Vest's own don't)."
+            onClick={() => update({ scaleOn: !s.scaleOn })}
+          >
+            SCALE {s.scaleOn ? 'ON' : 'OFF'}
+          </button>
+          {s.scaleOn && (
+            <>
+              <label title="number of limits, 2–10 (Vest's own limits)">
+                ×
+                <input type="number" min={2} max={10} step={1} value={s.scaleCount} onChange={(e) => update({ scaleCount: Math.round(Number(e.target.value) || 2) })} />
+              </label>
+              <label title="from the clicked price to the last limit, away from the market">
+                over pts
+                <PointsInput ticks={s.scaleSpanTicks} tick={tick} onTicks={(t) => update({ scaleSpanTicks: t })} />
+              </label>
+              <label title="1 = even; higher puts bigger sizes toward the chosen end">
+                skew
+                <input type="number" min={1} step={0.5} value={s.scaleSkew} onChange={(e) => update({ scaleSkew: Math.max(1, Number(e.target.value) || 1) })} />
+              </label>
+              <select value={s.scaleDir} onChange={(e) => update({ scaleDir: e.target.value as SkewDir })} title="where the biggest sizes go: Start = the clicked price, End = furthest from the market">
+                <option value="start">bigger at start</option>
+                <option value="even">even</option>
+                <option value="end">bigger at end</option>
+              </select>
+            </>
+          )}
+        </div>
         <div className="pretrade">
           <span>
             = <b>{units.toFixed(sizeDec)}u</b> <small>{eq(units)}</small>
@@ -1288,6 +1441,26 @@ export function App() {
             </span>
           )}
           {s.sizeMode === 'risk' && !s.slTicks && <span className="neg">set SL points to size by risk</span>}
+          {s.bracketsOn && multiTp && units > 0 && (() => {
+            const sp = splitTargets(units, sizeDec, targets);
+            return sp.ok ? (
+              <span title="each target closes its own part of the position">
+                {sp.legs.map((l, i) => `TP${i + 1} ${l.qty}u +$${(l.qty * l.ticks * tick).toFixed(2)}`).join(' · ')}
+              </span>
+            ) : (
+              <span className="neg">{sp.message}</span>
+            );
+          })()}
+          {s.scaleOn && units > 0 && (() => {
+            const sc = scaleOrders(units, sizeDec, 0, s.scaleSpanTicks, s.scaleCount, s.scaleSkew, s.scaleDir);
+            return sc.ok ? (
+              <span title="click a ladder price: limits from there, further from the market">
+                scale {sc.legs.map((l) => l.qty).join(' / ')}u every {((s.scaleSpanTicks / (s.scaleCount - 1)) * tick).toFixed(dec)} pts · no TP/SL
+              </span>
+            ) : (
+              <span className="neg">scale: {sc.message}</span>
+            );
+          })()}
           {units > maxU + 1e-9 && maxU > 0 && <span className="neg">over max size</span>}
           {live && s.liveSizeCap > 0 && units > s.liveSizeCap + 1e-12 && <span className="neg">over LIVE cap {s.liveSizeCap}u</span>}
         </div>

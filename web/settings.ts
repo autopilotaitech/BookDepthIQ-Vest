@@ -1,4 +1,5 @@
 import type { IndicatorCfg } from '../src/panel/indicators';
+import type { SkewDir } from '../src/live/targets';
 // Per-viewer UI settings in localStorage. Every read/write is guarded: storage can be missing or
 // throw (private window, blocked site data) and the panel must still work on defaults.
 
@@ -36,6 +37,19 @@ export interface Settings {
   indicators: Record<string, Partial<IndicatorCfg>>;
   /** Dual SuperTrend lines on the ladder + header badge (BookDepthIQ's engine and defaults). */
   showTrend: boolean;
+  /** Partial targets: TP2 / TP3 distances in ticks (0 = off; TP1 is tpTicks) and the size split. */
+  tp2Ticks: number;
+  tp3Ticks: number;
+  tpSplit: string;
+  /** With 2+ targets: the panel moves the stop to B/E when TP1 fills (owner-approved 2026-10-11). */
+  beAfterTp1: boolean;
+  /** Scale mode: a ladder click places `scaleCount` limits from the clicked price, `scaleSpanTicks`
+   * further away from the market, sized by `scaleSkew` toward `scaleDir` (Vest's own Scale ticket). */
+  scaleOn: boolean;
+  scaleCount: number;
+  scaleSpanTicks: number;
+  scaleSkew: number;
+  scaleDir: SkewDir;
 }
 
 const KEY = 'bdiqvest.settings.v3';
@@ -63,6 +77,15 @@ export const DEFAULTS: Settings = {
   showDelta: true,
   indicators: {},
   showTrend: true,
+  tp2Ticks: 0,
+  tp3Ticks: 0,
+  tpSplit: '50/30/20',
+  beAfterTp1: false,
+  scaleOn: false,
+  scaleCount: 3,
+  scaleSpanTicks: 0,
+  scaleSkew: 1,
+  scaleDir: 'even',
 };
 
 /** The old 0.01 default was a first-release cap the owner turned off (2026-10-08). */

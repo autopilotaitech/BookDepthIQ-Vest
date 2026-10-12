@@ -418,3 +418,31 @@ b { font-weight: 600; }
 /* ───── funding ───── */
 .position .fundwarn b, .position .fundwarn label { color: #f87171; }
 .position small { font-size: 11px; }
+
+/* v1.5 — bracket bar, room bar, targets / scale row */
+.fields.more { margin-top: 4px; }
+.fields input.wide { width: 74px; }
+.brbar { padding: 4px 10px 14px; border-bottom: 1px solid var(--line); }
+.brhead { font-size: 12px; color: var(--muted); }
+.brhead b { margin-right: 4px; }
+.brhead small { margin-left: 6px; }
+.brtrack { position: relative; height: 36px; margin-top: 2px; }
+.brtrack::before { content: ''; position: absolute; left: 4%; right: 4%; top: 17px; height: 2px; background: var(--line); }
+.brtrack .zone { position: absolute; top: 16px; height: 4px; border-radius: 2px; }
+.brtrack .zone.loss { background: color-mix(in srgb, var(--neg) 55%, transparent); }
+.brtrack .zone.win { background: color-mix(in srgb, var(--pos) 55%, transparent); }
+.brtrack .mk { position: absolute; top: 12px; width: 2px; height: 12px; transform: translateX(-1px); background: var(--text); }
+.brtrack .mk em, .brtrack .mk small { position: absolute; left: 50%; transform: translateX(-50%); white-space: nowrap; font-style: normal; font-size: 10px; }
+.brtrack .mk em { top: -12px; }
+.brtrack .mk small { top: 13px; }
+.brtrack .mk.sl { background: var(--neg); }
+.brtrack .mk.sl em, .brtrack .mk.sl small { color: var(--neg); }
+.brtrack .mk.tp { background: var(--pos); }
+.brtrack .mk.tp em, .brtrack .mk.tp small { color: var(--pos); }
+.brtrack .mk.in em { top: 13px; color: var(--muted); }
+.brtrack .mk.now { width: 8px; height: 8px; top: 14px; transform: translateX(-4px) rotate(45deg); background: var(--warn); }
+.roombar { position: relative; height: 14px; margin-top: 5px; background: #1a2130; border-radius: 3px; overflow: hidden; }
+.roombar i { position: absolute; left: 0; top: 0; bottom: 0; background: color-mix(in srgb, var(--pos) 45%, transparent); }
+.roombar i.mid { background: color-mix(in srgb, var(--warn) 55%, transparent); }
+.roombar i.low { background: color-mix(in srgb, var(--neg) 60%, transparent); }
+.roombar span { position: relative; padding-left: 6px; font-size: 10px; line-height: 14px; color: var(--text); }

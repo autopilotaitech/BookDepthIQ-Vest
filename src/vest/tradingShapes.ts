@@ -42,6 +42,17 @@ export interface OpenMarketInput {
   /** Absent = no leg. The user's numbers only; nothing here picks a distance. */
   takeProfit?: string;
   stopLoss?: string;
+  /** Several partial targets instead of `takeProfit`: each leg closes its own quantity. Leg shape
+   * {executionType, triggerPrice, quantity} read from Vest's own web app (2026-10-11: its order
+   * form sends `quantity` on a leg that closes part of the position). */
+  takeProfitLegs?: Array<{ triggerPrice: string; quantity: string }>;
+}
+
+function addLegs(body: Record<string, unknown>, i: OpenMarketInput): Record<string, unknown> {
+  if (i.takeProfitLegs && i.takeProfitLegs.length > 0) body.takeProfits = i.takeProfitLegs.map((l) => ({ executionType: 'market', triggerPrice: l.triggerPrice, quantity: l.quantity }));
+  else if (i.takeProfit !== undefined) body.takeProfits = [{ executionType: 'market', triggerPrice: i.takeProfit }];
+  if (i.stopLoss !== undefined) body.stopLosses = [{ executionType: 'market', triggerPrice: i.stopLoss }];
+  return body;
 }
 
 /** POST /v3/positions/open — market entry with optional brackets. */
@@ -54,9 +65,7 @@ export function openMarketBody(i: OpenMarketInput): Record<string, unknown> {
     quantity: i.quantity,
     timeInForce: 'IOC',
   };
-  if (i.takeProfit !== undefined) body.takeProfits = [{ executionType: 'market', triggerPrice: i.takeProfit }];
-  if (i.stopLoss !== undefined) body.stopLosses = [{ executionType: 'market', triggerPrice: i.stopLoss }];
-  return body;
+  return addLegs(body, i);
 }
 
 /**
@@ -76,9 +85,27 @@ export function openLimitBody(i: OpenMarketInput & { price: string }): Record<st
     timeInForce: 'GTC',
     side: i.side,
   };
-  if (i.takeProfit !== undefined) body.takeProfits = [{ executionType: 'market', triggerPrice: i.takeProfit }];
-  if (i.stopLoss !== undefined) body.stopLosses = [{ executionType: 'market', triggerPrice: i.stopLoss }];
-  return body;
+  return addLegs(body, i);
+}
+
+/**
+ * POST /v3/positions/append — another resting LIMIT on a position that is open or pending. Shape
+ * read from Vest's own web app (2026-10-11): its Scale ticket sends the first order to
+ * /positions/open, then every other order here with the positionId that came back
+ * ({leverage, orderType:"limit", positionId, quantity, price, symbol, isBuy, timeInForce}).
+ * Vest's scale orders carry no TP/SL legs.
+ */
+export function appendLimitBody(i: { symbol: string; positionId: string; isBuy: boolean; quantity: string; price: string; leverage: string }): Record<string, unknown> {
+  return {
+    leverage: i.leverage,
+    orderType: 'limit',
+    positionId: i.positionId,
+    quantity: i.quantity,
+    price: i.price,
+    symbol: i.symbol,
+    isBuy: i.isBuy,
+    timeInForce: 'GTC',
+  };
 }
 
 /** POST /v3/positions/close — leverage is required by the venue. */
@@ -226,6 +253,8 @@ export function readSavedLeverage(body: unknown, accountId: string, symbol: stri
 export interface Leg {
   id: string;
   triggerPrice: number;
+  /** Set when the leg closes only part of the position. */
+  quantity?: number;
 }
 
 export interface LivePosition {
@@ -243,7 +272,8 @@ function legs(v: unknown): Leg[] {
   return listOf(v).flatMap((l) => {
     const id = str(l.id ?? l.orderId ?? l.takeProfitId ?? l.stopLossId);
     const p = num(l.triggerPrice);
-    return id && p !== undefined ? [{ id, triggerPrice: p }] : [];
+    const q = num(l.quantity);
+    return id && p !== undefined ? [{ id, triggerPrice: p, ...(q !== undefined && q > 0 ? { quantity: q } : {}) }] : [];
   });
 }
 

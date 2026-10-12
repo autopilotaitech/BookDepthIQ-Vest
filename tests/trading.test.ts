@@ -651,3 +651,103 @@ describe('LIVE refusal reasons', () => {
     expect(writes(x.calls)).toHaveLength(0);
   });
 });
+
+describe('LIVE partial targets, scale and B/E after TP1', () => {
+  const TARGETS = [
+    { ticks: 40, pct: 50 },
+    { ticks: 80, pct: 30 },
+    { ticks: 120, pct: 20 },
+  ];
+  const BR = { bracketsOn: true, tpTicks: 40, slTicks: 20, targets: TARGETS, beAfterTp1: true, beOffset: 1 };
+
+  it('market entry: one TP leg per target with its quantity (Vest web-app leg shape), one full stop', async () => {
+    const { s, calls } = await liveSession(vest());
+    expect((await s.enter('buy', 0.1, MKT, BR)).ok).toBe(true);
+    expect(writes(calls)[0]!.body).toMatchObject({
+      quantity: '0.1',
+      takeProfits: [
+        { executionType: 'market', triggerPrice: '31461', quantity: '0.05' },
+        { executionType: 'market', triggerPrice: '31471', quantity: '0.03' },
+        { executionType: 'market', triggerPrice: '31481', quantity: '0.02' },
+      ],
+      stopLosses: [{ executionType: 'market', triggerPrice: '31446' }],
+    });
+    expect(s.beWatch.symbol).toBe('NDX-USD-PERP');
+  });
+
+  it('a size that cannot be split is refused before anything is sent', async () => {
+    const { s, calls } = await liveSession(vest());
+    const r = await s.enter('buy', 0.0002, MKT, BR);
+    expect(r.ok).toBe(false);
+    expect(writes(calls)).toHaveLength(0);
+  });
+
+  it('TP1 fills → ONE stop move to entry + offset, then nothing more', async () => {
+    let positions: unknown[] = [];
+    const base = vest();
+    const x = await liveSession((c) => (c.path === '/v3/positions/opened' ? { body: positions } : base(c)));
+    await x.s.enter('buy', 0.1, MKT, BR);
+    const legs3 = [{ id: 'T1', triggerPrice: '31461', quantity: '0.05' }, { id: 'T2', triggerPrice: '31471', quantity: '0.03' }, { id: 'T3', triggerPrice: '31481', quantity: '0.02' }];
+    positions = [{ ...LONG_POS, quantity: '0.1', openPrice: '31451', takeProfits: legs3 }];
+    x.advance(100);
+    await x.s.poll();
+    expect(writes(x.calls)).toHaveLength(1); // fill within a tick: no re-anchor
+    // TP1 filled; price at 31461
+    await x.s.onMarketTrade(125844, { ...MKT, bid: 125843, ask: 125845 });
+    positions = [{ ...LONG_POS, quantity: '0.05', openPrice: '31451', takeProfits: legs3.slice(1) }];
+    x.advance(1500);
+    await x.s.poll();
+    const w = writes(x.calls);
+    expect(w).toHaveLength(2);
+    expect(w[1]).toMatchObject({ method: 'PUT', path: '/v3/positions/stop-loss', body: { positionId: 'P1', triggerPrice: '31451.25', stopLossId: 'S1' } });
+    expect(x.s.stopEvent?.message).toMatch(/TP1 filled/);
+    x.advance(1500);
+    await x.s.poll();
+    expect(writes(x.calls)).toHaveLength(2);
+  });
+
+  it('back to PAPER disarms B/E after TP1', async () => {
+    const { s } = await liveSession(vest());
+    await s.enter('buy', 0.1, MKT, BR);
+    s.goPaper();
+    expect(s.beWatch.symbol).toBeUndefined();
+  });
+
+  it('scale: first limit to /positions/open, the rest to /positions/append with its positionId, no legs', async () => {
+    const { s, calls } = await liveSession(vest());
+    // buy 0.3 from 31440 down to 31430 in 3 → 31440, 31435, 31430
+    const r = await s.enterScale('buy', 0.3, 125760, 125720, 3, 1, 'even', MKT);
+    expect(r.ok).toBe(true);
+    const w = writes(calls);
+    expect(w.map((c) => c.path)).toEqual(['/v3/positions/open', '/v3/positions/append', '/v3/positions/append']);
+    expect(w[0]!.body).toEqual({ orderType: 'limit', leverage: '25', quantity: '0.1', price: '31440', symbol: 'NDX-USD-PERP', timeInForce: 'GTC', side: 'long' });
+    expect(w[1]!.body).toEqual({ leverage: '25', orderType: 'limit', positionId: 'P1', quantity: '0.1', price: '31435', symbol: 'NDX-USD-PERP', isBuy: true, timeInForce: 'GTC' });
+    expect(w[2]!.body).toMatchObject({ price: '31430', positionId: 'P1' });
+  });
+
+  it('scale: no positionId back → the rest are not sent, and it says so', async () => {
+    const base = vest();
+    const { s, calls } = await liveSession((c) => (c.path === '/v3/positions/open' ? { body: { orderId: 'O1' } } : base(c)));
+    const r = await s.enterScale('buy', 0.3, 125760, 125720, 3, 1, 'even', MKT);
+    expect(r.ok).toBe(false);
+    expect(r.message).toMatch(/NOT sent/);
+    expect(writes(calls)).toHaveLength(1);
+  });
+
+  it('drag one order of a scale: cancel, then re-place through /positions/append', async () => {
+    const o1 = { ...VEST_LIMIT, order_id: 'L1', position_id: 'P1' };
+    const o2 = { ...VEST_LIMIT, order_id: 'L2', price: '31435', position_id: 'P1' };
+    const { s, calls } = await liveSession(vest({ orders: [o1, o2] }));
+    expect((await s.moveOrder('L2', 125730, MKT, BR)).ok).toBe(true);
+    const w = writes(calls);
+    expect(w.map((c) => c.path)).toEqual(['/v3/positions/cancel-order', '/v3/positions/append']);
+    expect(w[1]!.body).toMatchObject({ positionId: 'P1', price: '31432.5', quantity: '0.1', isBuy: true });
+  });
+
+  it('drag the second TP leg by its index', async () => {
+    const p = { ...LONG_POS, takeProfits: [{ id: 'T1', triggerPrice: '31461' }, { id: 'T2', triggerPrice: '31471' }] };
+    const { s, calls } = await liveSession(vest({ positions: [p] }));
+    expect((await s.moveLeg('tp', 125890, MKT, 1)).ok).toBe(true);
+    expect(writes(calls)[0]).toMatchObject({ method: 'PUT', path: '/v3/positions/take-profit', body: { takeProfitId: 'T2', triggerPrice: '31472.5' } });
+  });
+});

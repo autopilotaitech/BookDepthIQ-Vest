@@ -14,6 +14,7 @@ import {
   type RestingOrder,
 } from '../vest/tradingShapes.js';
 import type { SymbolInfo } from '../vest/types.js';
+import { BeWatch, scaleOrders, splitTargets, type Piece, type SkewDir, type Target } from './targets.js';
 import { DEFAULT_LIVE_SIZE_CAP, bracketTicks, breakevenTicks, liveEntryCheck, reanchorPlan, resolveLeverage, type Check } from './rules.js';
 
 // The LIVE side of the panel: Vest account state, push + polling, and the actions (LIVE-ORDERS-SPEC §4).
@@ -24,7 +25,9 @@ import { DEFAULT_LIVE_SIZE_CAP, bracketTicks, breakevenTicks, liveEntryCheck, re
 // - Entries go through liveEntryCheck. FLATTEN and CANCEL ALL go through NOTHING: not the mode, not
 //   the guard, not a failed read, not an expiring token.
 // - No order is sent except from a user action (click or armed hotkey), plus the one spec-mandated
-//   follow-up: re-anchoring the legs of the entry the user just sent.
+//   follow-up (re-anchoring the legs of the entry the user just sent) and the two owner-approved
+//   exceptions: panel-held stop entries (stops.ts, 2026-10-09) and B/E after TP1 (targets.ts,
+//   2026-10-11).
 
 export type LiveMode = 'paper' | 'live';
 
@@ -39,7 +42,15 @@ export interface BracketCtx {
   bracketsOn: boolean;
   tpTicks: number;
   slTicks: number;
+  /** TP1..TP3 with the size split. Two or more on = partial targets (TP1 is tpTicks). */
+  targets?: Target[];
+  /** With 2+ targets: move the stop to entry ± beOffset once TP1 fills (owner-approved 2026-10-11). */
+  beAfterTp1?: boolean;
+  beOffset?: number;
 }
+
+/** Bracket legs in ticks for one entry: a stop for the whole size, then one target or several. */
+type Legs = { sl?: number; tp?: number; tps?: Piece[] };
 
 export interface LiveDeps {
   fetch: FetchLike;
@@ -94,7 +105,7 @@ export class LiveSession {
   private userToken: string | null = null;
   /** TP/SL trigger prices the panel sent with each resting limit, by Vest orderId — so a move can
    * shift them with the order, as Vest's own drag does. */
-  private orderLegs = new Map<string, { tp?: number; sl?: number }>();
+  private orderLegs = new Map<string, Legs>();
   private entry: PendingEntry | null = null;
   private pollTimer: unknown = null;
   private pollMs = POLL_MS;
@@ -109,6 +120,10 @@ export class LiveSession {
   readonly stops = new StopBook();
   /** Latest stop event (armed / fired / refused / disarmed), for the panel's result bar. */
   stopEvent: (Check & { at: number }) | null = null;
+  /** B/E after TP1: watches the position of the entry that asked for it. See targets.ts. */
+  readonly beWatch = new BeWatch();
+  /** Latest market context from the trade feed (B/E after TP1 needs the bid/ask). */
+  private lastMkt: { m: MarketCtx; at: number } | null = null;
   private readonly setTimer: (fn: () => void, ms: number) => unknown;
   private readonly clearTimer: (h: unknown) => void;
 
@@ -328,7 +343,8 @@ export class LiveSession {
       entryInFlight: this.entryInFlight(),
     });
     if (!chk.ok) return chk;
-    const legs = br.bracketsOn ? bracketTicks(long, ref!, br.tpTicks, br.slTicks) : {};
+    const legs = this.legsFor(long, ref!, qty, m, br);
+    if ('message' in legs) return no(legs.message);
     let input: OpenMarketInput;
     try {
       input = {
@@ -336,8 +352,7 @@ export class LiveSession {
         side: long ? 'long' : 'short',
         quantity: qtyString(qty, m.info.sizeDecimals),
         leverage: String(lev),
-        takeProfit: legs.tp === undefined ? undefined : priceString(legs.tp, m.tick, m.info.priceDecimals),
-        stopLoss: legs.sl === undefined ? undefined : priceString(legs.sl, m.tick, m.info.priceDecimals),
+        ...this.legStrings(legs, m),
       };
     } catch (e) {
       return no((e as Error).message);
@@ -346,6 +361,9 @@ export class LiveSession {
     this.deps.onChange();
     try {
       const r = await this.api.open(input);
+      this.armBe(legs, m, br);
+      // Partial targets are priced from the expected fill and not re-anchored (tpTicks 0): a PUT
+      // has no quantity, so moving one could turn a partial target into a full one.
       this.entry = {
         symbol: m.info.symbol,
         tick: m.tick,
@@ -392,7 +410,8 @@ export class LiveSession {
       entryInFlight: this.entryInFlight(),
     });
     if (!chk.ok) return chk;
-    const legs = br.bracketsOn ? bracketTicks(long, priceTicks, br.tpTicks, br.slTicks) : {};
+    const legs = this.legsFor(long, priceTicks, qty, m, br);
+    if ('message' in legs) return no(legs.message);
     let input: OpenMarketInput & { price: string };
     try {
       input = {
@@ -401,8 +420,7 @@ export class LiveSession {
         quantity: qtyString(qty, m.info.sizeDecimals),
         leverage: String(lev),
         price: priceString(priceTicks, m.tick, m.info.priceDecimals),
-        takeProfit: legs.tp === undefined ? undefined : priceString(legs.tp, m.tick, m.info.priceDecimals),
-        stopLoss: legs.sl === undefined ? undefined : priceString(legs.sl, m.tick, m.info.priceDecimals),
+        ...this.legStrings(legs, m),
       };
     } catch (e) {
       return no((e as Error).message);
@@ -411,7 +429,8 @@ export class LiveSession {
     this.deps.onChange();
     try {
       const r = await this.api.openLimit(input);
-      if (r.orderId) this.orderLegs.set(r.orderId, { tp: legs.tp, sl: legs.sl });
+      this.armBe(legs, m, br);
+      if (r.orderId) this.orderLegs.set(r.orderId, legs);
       return ok(`LIMIT ${side.toUpperCase()} ${input.quantity} @ ${input.price} sent to Vest${r.orderId ? ` — order ${r.orderId}` : ''}`);
     } catch (e) {
       return no(`limit entry failed: ${(e as Error).message}`);
@@ -452,24 +471,40 @@ export class LiveSession {
     const delta = toTicks - fromTicks;
     // Legs: Vest's own (if it sends them on the order), else the ones the panel sent, shifted by
     // the move; else the user's bracket points from the new price.
+    // One order of a scale (it shares its pending position with others): re-place it the way Vest
+    // added it, through /positions/append, with no legs.
+    const pid = o.positionId;
+    const shared = !!pid && (this.positions.some((p) => p.positionId === pid) || this.orders.some((x) => x.orderId !== orderId && x.positionId === pid));
     const known = this.orderLegs.get(orderId);
-    const vestTp = o.takeProfits[0] ? Math.round(o.takeProfits[0].triggerPrice / m.tick) : undefined;
-    const vestSl = o.stopLosses[0] ? Math.round(o.stopLosses[0].triggerPrice / m.tick) : undefined;
-    let tp = vestTp ?? known?.tp;
-    let sl = vestSl ?? known?.sl;
-    if (tp !== undefined) tp += delta;
-    if (sl !== undefined) sl += delta;
-    if (tp === undefined && sl === undefined && br.bracketsOn) ({ tp, sl } = bracketTicks(long, toTicks, br.tpTicks, br.slTicks));
+    const t = (p: number) => Math.round(p / m.tick);
+    const vestTps = o.takeProfits.length > 1 && o.takeProfits.every((l) => l.quantity) ? o.takeProfits.map((l) => ({ ticks: t(l.triggerPrice), qty: l.quantity! })) : undefined;
+    let legs: Legs = {};
+    if (!shared) {
+      const tps = vestTps ?? known?.tps;
+      if (!tps && o.takeProfits.length > 1) return no('this order has several targets of unknown size — cancel it and place it again');
+      const tp0 = o.takeProfits[0] ? t(o.takeProfits[0].triggerPrice) : known?.tp;
+      const sl0 = o.stopLosses[0] ? t(o.stopLosses[0].triggerPrice) : known?.sl;
+      legs = {
+        tps: tps?.map((l) => ({ ticks: l.ticks + delta, qty: l.qty })),
+        tp: tps || tp0 === undefined ? undefined : tp0 + delta,
+        sl: sl0 === undefined ? undefined : sl0 + delta,
+      };
+      if (legs.tp === undefined && legs.sl === undefined && !legs.tps && br.bracketsOn) {
+        const fresh = this.legsFor(long, toTicks, left, m, br);
+        if ('message' in fresh) return no(fresh.message);
+        legs = fresh;
+      }
+    }
+    const lev = o.leverage ?? String(this.leverageFor(m.info));
     let input: OpenMarketInput & { price: string };
     try {
       input = {
         symbol: o.symbol ?? m.info.symbol,
         side: long ? 'long' : 'short',
         quantity: qtyString(left, m.info.sizeDecimals),
-        leverage: o.leverage ?? String(this.leverageFor(m.info)),
+        leverage: lev,
         price: priceString(toTicks, m.tick, m.info.priceDecimals),
-        takeProfit: tp === undefined ? undefined : priceString(tp, m.tick, m.info.priceDecimals),
-        stopLoss: sl === undefined ? undefined : priceString(sl, m.tick, m.info.priceDecimals),
+        ...this.legStrings(legs, m),
       };
     } catch (e) {
       return no((e as Error).message);
@@ -484,8 +519,10 @@ export class LiveSession {
       }
       this.orderLegs.delete(orderId);
       try {
-        const r = await this.api.openLimit(input);
-        if (r.orderId) this.orderLegs.set(r.orderId, { tp, sl });
+        const r = shared
+          ? await this.api.appendLimit({ symbol: input.symbol, positionId: pid!, isBuy: long, quantity: input.quantity, price: input.price, leverage: lev })
+          : await this.api.openLimit(input);
+        if (r.orderId && !shared) this.orderLegs.set(r.orderId, legs);
         return ok(`moved ${o.side.toUpperCase()} ${input.quantity} to ${input.price}`);
       } catch (e) {
         return no(`order ${orderId} was CANCELLED but the re-place at ${input.price} failed: ${(e as Error).message} — nothing is resting now`);
@@ -497,10 +534,10 @@ export class LiveSession {
     }
   }
 
-  /** Drag a TP or SL leg of the open position to `toTicks` (PUT). */
-  async moveLeg(kind: 'tp' | 'sl', toTicks: number, m: MarketCtx): Promise<Check> {
+  /** Drag a TP or SL leg (the `index`-th of its kind) of the open position to `toTicks` (PUT). */
+  async moveLeg(kind: 'tp' | 'sl', toTicks: number, m: MarketCtx, index = 0): Promise<Check> {
     const p = this.positionFor(m.info.symbol);
-    const leg = kind === 'tp' ? p?.takeProfits[0] : p?.stopLosses[0];
+    const leg = kind === 'tp' ? p?.takeProfits[index] : p?.stopLosses[index];
     if (!p || !leg) return no(`no ${kind.toUpperCase()} on Vest to move`);
     try {
       const px = priceString(toTicks, m.tick, m.info.priceDecimals);
@@ -559,6 +596,7 @@ export class LiveSession {
     if (held.length === 0) out.push('no Vest position');
     const disarmed = this.stops.clear(sym);
     if (disarmed) out.push(`disarmed ${disarmed} stop(s)`);
+    if (this.beWatch.clear(sym)) out.push('B/E after TP1 off');
     const c = await this.cancelResting(sym);
     good = good && c.ok;
     out.push(c.message);
@@ -569,6 +607,7 @@ export class LiveSession {
 
   /** Cancel resting orders (on `symbol`, or every one when omitted). NEVER gated. */
   async cancelAll(symbol?: string): Promise<Check> {
+    this.beWatch.clear(symbol);
     const disarmed = this.stops.clear(symbol);
     const r = await this.cancelResting(symbol);
     this.kick(0);
@@ -609,9 +648,11 @@ export class LiveSession {
   /** Disarm every stop (connection lost, instrument switch, PAPER, login gone). Never sends anything. */
   disarmStops(reason: string): void {
     const n = this.stops.clear();
-    if (!n) return;
-    this.write(`! ${n} stop(s) DISARMED: ${reason}`);
-    this.stopEvent = { ok: false, message: `${n} stop(s) disarmed — ${reason}`, at: this.deps.now() };
+    const be = this.beWatch.clear();
+    if (!n && !be) return;
+    const what = [n ? `${n} stop(s)` : '', be ? 'B/E after TP1' : ''].filter(Boolean).join(' + ');
+    this.write(`! ${what} DISARMED: ${reason}`);
+    this.stopEvent = { ok: false, message: `${what} disarmed — ${reason}`, at: this.deps.now() };
     this.deps.onChange();
   }
 
@@ -620,6 +661,7 @@ export class LiveSession {
    * size and brackets, through the normal entry checks. One-shot: a refused stop is gone, and says why.
    */
   async onMarketTrade(priceTicks: number, m: MarketCtx): Promise<void> {
+    this.lastMkt = { m, at: this.deps.now() };
     if (this.stops.size === 0) return;
     if (this.mode !== 'live') return this.disarmStops('not in LIVE');
     if (!this.tokenOk()) return this.disarmStops('Vest login expired');
@@ -632,6 +674,112 @@ export class LiveSession {
       this.write(`${r.ok ? '✓' : '✗'} STOP @ ${px}: ${r.message}`);
       this.deps.onChange();
     }
+  }
+
+  // ───────────── partial targets, scale, B/E after TP1 ─────────────
+
+  private legsFor(long: boolean, refTicks: number, qty: number, m: MarketCtx, br: BracketCtx): Legs | { message: string } {
+    if (!br.bracketsOn) return {};
+    const sl = bracketTicks(long, refTicks, 0, br.slTicks).sl;
+    const on = (br.targets ?? []).filter((t) => t.ticks > 0);
+    if (on.length < 2) return { sl, tp: bracketTicks(long, refTicks, br.tpTicks, 0).tp };
+    const split = splitTargets(qty, m.info.sizeDecimals, on);
+    if (!split.ok) return { message: split.message };
+    return { sl, tps: split.legs.map((l) => ({ ticks: bracketTicks(long, refTicks, l.ticks, 0).tp!, qty: l.qty })) };
+  }
+
+  private legStrings(l: Legs, m: MarketCtx): Pick<OpenMarketInput, 'takeProfit' | 'stopLoss' | 'takeProfitLegs'> {
+    const px = (t: number) => priceString(t, m.tick, m.info.priceDecimals);
+    return {
+      takeProfit: l.tp === undefined || l.tps ? undefined : px(l.tp),
+      takeProfitLegs: l.tps?.map((x) => ({ triggerPrice: px(x.ticks), quantity: qtyString(x.qty, m.info.sizeDecimals) })),
+      stopLoss: l.sl === undefined ? undefined : px(l.sl),
+    };
+  }
+
+  private armBe(l: Legs, m: MarketCtx, br: BracketCtx): void {
+    if (!l.tps || l.tps.length < 2 || !br.beAfterTp1) return;
+    this.beWatch.arm(m.info.symbol, br.beOffset ?? 0);
+    this.write(`⚡ B/E after TP1 armed on ${m.info.symbol}: the panel moves the stop to entry ± offset when TP1 fills (keep this window open)`);
+  }
+
+  /**
+   * Scale order, as Vest's own Scale ticket sends it (read from its web app, 2026-10-11): `count`
+   * limits from `startTicks` to `endTicks`; the first to /positions/open, the rest to
+   * /positions/append with the positionId Vest returned. No TP/SL legs (Vest's scale has none):
+   * press B/E once filled to add a stop. Same entry checks as a limit, at the furthest price.
+   */
+  async enterScale(side: Side, units: number, startTicks: number, endTicks: number, count: number, skew: number, dir: SkewDir, m: MarketCtx): Promise<Check> {
+    if (this.mode !== 'live') return no('not in LIVE');
+    const long = side === 'buy';
+    const plan = scaleOrders(units, m.info.sizeDecimals, startTicks, endTicks, count, skew, dir);
+    if (!plan.ok) return no(plan.message);
+    const lev = this.leverageFor(m.info);
+    const total = plan.legs.reduce((a, l) => a + l.qty, 0);
+    const chk = liveEntryCheck({
+      units: total,
+      sizeCap: this.sizeCap,
+      canTrade: this.canTrade,
+      price: Math.max(startTicks, endTicks) * m.tick,
+      equity: this.equity(),
+      floor: this.floor(),
+      leverage: lev,
+      hasPosition: !!this.positionFor(m.info.symbol),
+      positionsFresh: this.positionsFresh(),
+      entryInFlight: this.entryInFlight(),
+    });
+    if (!chk.ok) return chk;
+    let orders: Array<{ price: string; quantity: string }>;
+    try {
+      orders = plan.legs.map((l) => ({ price: priceString(l.ticks, m.tick, m.info.priceDecimals), quantity: qtyString(l.qty, m.info.sizeDecimals) }));
+    } catch (e) {
+      return no((e as Error).message);
+    }
+    const [first, ...rest] = orders;
+    const symbol = m.info.symbol;
+    this.busy = true;
+    this.deps.onChange();
+    try {
+      let positionId: string | undefined;
+      try {
+        positionId = (await this.api.openLimit({ symbol, side: long ? 'long' : 'short', quantity: first!.quantity, leverage: String(lev), price: first!.price })).positionId;
+      } catch (e) {
+        return no(`scale: first order failed: ${(e as Error).message} — nothing sent`);
+      }
+      if (!positionId) return no(`scale: first order @ ${first!.price} sent, but Vest returned no positionId — the other ${rest.length} were NOT sent`);
+      const failed: string[] = [];
+      for (const o of rest) {
+        try {
+          await this.api.appendLimit({ symbol, positionId, isBuy: long, quantity: o.quantity, price: o.price, leverage: String(lev) });
+        } catch (e) {
+          failed.push(`${o.price}: ${(e as Error).message}`);
+        }
+      }
+      const what = `SCALE ${side.toUpperCase()} ${qtyString(total, m.info.sizeDecimals)} in ${orders.length} limits ${first!.price} → ${orders.at(-1)!.price}`;
+      return failed.length ? no(`${what}: ${orders.length - failed.length}/${orders.length} sent; failed ${failed.join('; ')}`) : ok(`${what} sent to Vest (no TP/SL: press B/E once filled)`);
+    } finally {
+      this.busy = false;
+      this.kick(0);
+      this.deps.onChange();
+    }
+  }
+
+  /** After a poll: has TP1 of a watched position filled? If so, send the B/E stop once. */
+  private async checkBeWatch(): Promise<void> {
+    const sym = this.beWatch.symbol;
+    if (!sym) return;
+    const offset = this.beWatch.offsetTicks;
+    const r = this.beWatch.check(this.positionFor(sym));
+    if (r === 'gone') this.write('B/E after TP1: position closed — watch ended');
+    if (r !== 'fire') return;
+    const lm = this.lastMkt;
+    let res: Check;
+    if (this.mode !== 'live') res = no('not in LIVE');
+    else if (!lm || lm.m.info.symbol !== sym || this.deps.now() - lm.at > 30_000) res = no('no fresh book for that instrument — press B/E yourself');
+    else res = await this.breakeven(lm.m, offset);
+    this.stopEvent = { ok: res.ok, message: `TP1 filled → ${res.message}`, at: this.deps.now() };
+    this.write(`${res.ok ? '✓' : '✗'} TP1 filled → ${res.message}`);
+    this.deps.onChange();
   }
 
   private async cancelResting(symbol?: string): Promise<Check> {
@@ -674,6 +822,7 @@ export class LiveSession {
         await this.refreshBalances().catch((e) => (this.pollError = `balance: ${(e as Error).message}`));
       }
       await this.settleEntry(started);
+      await this.checkBeWatch();
     } catch (e) {
       this.pollError = (e as Error).message;
       if ((e as { status?: number }).status === 429) this.pollMs = Math.min(this.pollMs * 2, MAX_POLL_MS);

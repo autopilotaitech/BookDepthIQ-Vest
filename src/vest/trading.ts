@@ -1,6 +1,7 @@
 import { REST_BASE } from './types.js';
 import {
   addStopBody,
+  appendLimitBody,
   cancelOrderBody,
   claimsExpMs,
   closeBody,
@@ -126,6 +127,9 @@ export class VestTrading {
   }
   async openLimit(i: OpenMarketInput & { price: string }): Promise<OpenResult> {
     return readOpenResult(await this.call('POST', '/v3/positions/open', openLimitBody(i), 'account', 'write'));
+  }
+  async appendLimit(i: Parameters<typeof appendLimitBody>[0]): Promise<OpenResult> {
+    return readOpenResult(await this.call('POST', '/v3/positions/append', appendLimitBody(i), 'account', 'write'));
   }
   async close(symbol: string, positionId: string, leverage: string): Promise<unknown> {
     return this.call('POST', '/v3/positions/close', closeBody(symbol, positionId, leverage), 'account', 'write', true);

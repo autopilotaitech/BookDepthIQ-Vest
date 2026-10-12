@@ -209,3 +209,43 @@ describe('accounting', () => {
     expect(formatPrice(125915, 0.25)).toBe('31478.75');
   });
 });
+
+describe('partial targets and B/E after TP1 (paper)', () => {
+  const T = [
+    { ticks: 4, pct: 50 },
+    { ticks: 8, pct: 30 },
+    { ticks: 12, pct: 20 },
+  ];
+  function multi(beAfterTp1: boolean) {
+    const b = new PaperBroker(CFG);
+    b.bracket = { enabled: true, tpTicks: 4, slTicks: 4, targets: T, beAfterTp1, beOffset: 1 };
+    b.onBook(book(100, 102));
+    return b;
+  }
+
+  it('one TP leg per target, each with its own share of the size', () => {
+    const b = multi(false);
+    b.marketOrder('buy', 1);
+    const tps = b.orders.filter((o) => o.leg === 'tp');
+    expect(tps.map((o) => [o.priceTicks, o.qty])).toEqual([[106, 0.5], [110, 0.3], [114, 0.2]]);
+    expect(b.orders.find((o) => o.leg === 'sl')!.qty).toBe(1);
+  });
+
+  it('TP1 fills: the stop moves to entry + offset once, and shrinks to what is left', () => {
+    const b = multi(true);
+    b.marketOrder('buy', 1); // avg 102, SL 98
+    b.onBook(book(106, 107)); // TP1 at 106
+    expect(b.position.qty).toBe(0.5);
+    const sl = b.orders.find((o) => o.leg === 'sl')!;
+    expect(sl.priceTicks).toBe(103);
+    expect(sl.qty).toBe(0.5);
+    expect(b.orders.filter((o) => o.leg === 'tp')).toHaveLength(2);
+  });
+
+  it('without the box, TP1 leaves the stop where it was', () => {
+    const b = multi(false);
+    b.marketOrder('buy', 1);
+    b.onBook(book(106, 107));
+    expect(b.orders.find((o) => o.leg === 'sl')!.priceTicks).toBe(98);
+  });
+});

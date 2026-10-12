@@ -172,6 +172,18 @@ and delta count from when the panel opens.
 - **TP pts / SL pts**: distances in points. They're your numbers; the panel has no built-in
   defaults. 0 means no leg. **BRACKET ON/OFF** toggles legs for new entries.
 - **B/E + pts**: the offset used by B/E.
+- **TP2 / TP3** (second row): more targets, each further than the last. With two or more set,
+  **split** (e.g. `50/30/20`) says what share of the size each one closes, and the ticket shows the
+  units and $ per target. **B/E after TP1** moves your stop to entry ± the B/E offset once TP1
+  fills (see *Safety rules*).
+- **SCALE ON**: a ladder click places 2–10 limits from the clicked price, **over pts** further
+  away from the market, sized evenly or with a **skew** toward the start or the end, like Vest's
+  own Scale ticket. Shift-click is still a stop. Scale orders carry no TP/SL (Vest's don't either):
+  press B/E once filled.
+
+**In a trade.** A bar under the position row puts the stop, your entry, the price now and every
+target on one line, with the $ at each. In LIVE, a **room to floor** bar under the account row
+shows how much of the drawdown allowance is left (amber under 50%, red under 25%).
 
 **Hotkeys**
 - **F** = flatten and **Esc** = cancel all. Both always work.
@@ -195,6 +207,9 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
   on Vest: close the window, switch instrument or go to PAPER and they are disarmed (the header
   shows **⚡ N stops armed** while any are live). Each one fires once, through the same checks as a
   click.
+- **B/E after TP1** is the only other thing that acts without a click: once TP1 fills it sends
+  one stop move to entry ± your offset. Off unless you tick it; disarmed by the same things as
+  panel-held stops, and by FLATTEN or CANCEL ALL.
 - **Vest is the source of truth.** Positions, orders and balance come from Vest and are never
   computed locally. Vest pushes account changes over its private socket, and the panel re-reads
   them at once (the account row shows **Vest ⚡ live**). If the push drops, it falls back to

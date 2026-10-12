@@ -11,8 +11,11 @@ here, and do not add Vest code to BookDepthIQ. Read `docs/DESIGN.md` before chan
    account per person. **One exception, approved by the owner on 2026-10-09:** panel-held stop
    entries (`src/live/stops.ts`). The user arms a buy/sell stop at their own price, size and
    brackets; on a trade at or through it the panel sends ONE market entry through the normal entry
-   checks. They disarm on PAPER, instrument switch, lost market data or an expired login. Nothing
-   else may send an order without a click.
+   checks. They disarm on PAPER, instrument switch, lost market data or an expired login.
+   **Second exception, approved by the owner on 2026-10-11:** B/E after TP1 (`src/live/targets.ts`).
+   Ticked by the user on an entry with 2+ targets; when TP1 fills the panel sends ONE stop move to
+   entry ± the user's B/E offset. Same disarm rules as the stops. Nothing else may send an order
+   without a click.
 3. **Never guess an endpoint payload.** Order shapes come from a HAR captured in the owner's own
    session. Vest has no public API docs.
 4. **Brackets are the user's numbers.** No hard-coded TP/SL distances.
