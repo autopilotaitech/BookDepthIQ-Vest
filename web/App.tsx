@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { bestAsk, bestBid } from '../src/book/book';
 import { PanelModel } from '../src/panel/model';
 import { formatPrice, tickDecimals, type BracketSettings, type Result, type Side, type WorkingOrder } from '../src/sim/paper';
-import { journalCsv, journalStats, marketState, rMultiple, swingStopTicks, type JournalTrade, type MarketState } from '../src/panel/structure';
+import { journalCsv, journalStats, marketState, rMultiple, scalpRead, SCALP_NEAR_ATR, SCALP_PULLBACK_BARS, swingStopTicks, type JournalTrade, type MarketState } from '../src/panel/structure';
 import { feedHealth, needsConfirm, percentiles, tradeChecks, type TradeCheck } from '../src/panel/checks';
 import type { Session } from '../src/panel/replay';
 import { failPrice, leverageUsed, marginUsed, maxUnits, unitsForNotional } from '../src/sim/account';
@@ -1097,6 +1097,8 @@ export function App() {
     atrTicks: atrT,
   });
   prevState.current = mstate.state;
+  // The SuperTrend scalp read (structure.ts): near ST1 + pulling back = GO; 2+ ATR out = don't chase.
+  const scalp = scalpRead(tr.t1.dir, m.lastTradeTicks ?? mid, tr.t1.lineTicks, atrT, m.bars.regime(Date.now(), SCALP_PULLBACK_BARS));
   // Level lines drawn across ladder rows (like the ST lines): VWAP + σ bands, stacked-imbalance
   // zones, big prints. Keyed by row; each row can carry several.
   const vwapT = ind.vwapOn ? m.vwap.value() : undefined;
@@ -1108,6 +1110,10 @@ export function App() {
     arr.push({ cls, label });
     levelLines.set(r, arr);
   };
+  if (s.showTrend && scalp && tr.t1.lineTicks !== undefined && atrT) {
+    const up = scalp.side === 'long';
+    addLine(tr.t1.lineTicks + (up ? 1 : -1) * SCALP_NEAR_ATR * atrT, 'nochase', `NO CHASE ${up ? 'above' : 'below'} (ST1 ${up ? '+' : '−'}${SCALP_NEAR_ATR} ATR)`);
+  }
   if (vwapT !== undefined) {
     addLine(vwapT, 'vwap', 'VWAP');
     for (const b of m.vwap.bands(ind.vwapBands)) {
@@ -1334,10 +1340,20 @@ export function App() {
             ⚡ {L.stops.size} stop{L.stops.size > 1 ? 's' : ''} armed
           </span>
         )}
-        {s.showTrend && mstate.state !== 'warming' && (
-          <span className={`statebadge ${mstate.state} ${mstate.extended ? 'ext' : ''}`} title={mstate.why}>
-            {mstate.state === 'chop' ? 'CHOP — fade the edges' : mstate.state === 'trend-up' ? 'TREND ▲' : 'TREND ▼'}
-            {mstate.extended ? ` · EXTENDED ${mstate.extended === 'up' ? '↑' : '↓'} don't chase` : ''}
+        {s.showTrend && scalp && (
+          <span
+            className={`scalpbadge ${scalp.zone} ${scalp.side}`}
+            title={`ST1 scalp read: price ${scalp.distAtr.toFixed(1)} ATR past the ST1 line; last ${SCALP_PULLBACK_BARS} min ${scalp.pull < 0 ? 'pulling back' : 'running'} (${scalp.pull.toFixed(2)}).
+Measured on 72 h of Vest NQ, ST1-side scalps, 10/10 pts: near ST1 + pulling back won 63% (+2.5 pts before ~1.25 pts fees); 3+ ATR out won 47%. Past results, not a promise.
+Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warming' : 'TREND'} — ${mstate.why}`}
+          >
+            {scalp.side === 'long' ? '▲' : '▼'}{' '}
+            {scalp.zone === 'go'
+              ? `SCALP ${scalp.side === 'long' ? 'LONG' : 'SHORT'} — pullback to ST1`
+              : scalp.zone === 'near'
+                ? `${scalp.side === 'long' ? 'LONG' : 'SHORT'} side — wait for the dip`
+                : `STRETCHED ${scalp.distAtr.toFixed(1)} ATR — don't chase`}
+            {mstate.state === 'chop' ? ' · chop' : ''}
           </span>
         )}
         {limitsOn && (

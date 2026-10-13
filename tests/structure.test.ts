@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MinuteBars, journalCsv, journalStats, marketState, rMultiple, swingStopTicks, type JournalTrade } from '../src/panel/structure.js';
+import { MinuteBars, scalpRead, journalCsv, journalStats, marketState, rMultiple, swingStopTicks, type JournalTrade } from '../src/panel/structure.js';
 import { StopBook } from '../src/live/stops.js';
 
 const T0 = Date.UTC(2026, 9, 12, 14, 0);
@@ -55,6 +55,18 @@ describe('market state', () => {
     for (let k = 0; k <= 20; k++) saw.add(k * 60_000, k % 2 ? 110 : 100);
     expect(Math.abs(saw.regime(20 * 60_000)!.er)).toBeLessThan(0.1);
     expect(new MinuteBars().regime(0)).toBeUndefined();
+  });
+});
+
+describe('SuperTrend scalp read', () => {
+  it('GO near the line on a pullback, NEAR while still running, STRETCHED 2+ ATR out', () => {
+    expect(scalpRead('up', 104, 100, 4, { er: -0.4 })).toMatchObject({ side: 'long', zone: 'go', distAtr: 1 });
+    expect(scalpRead('up', 104, 100, 4, { er: 0.5 })?.zone).toBe('near');
+    expect(scalpRead('up', 110, 100, 4, { er: -0.4 })?.zone).toBe('stretched');
+    expect(scalpRead('down', 96, 100, 4, { er: 0.3 })).toMatchObject({ side: 'short', zone: 'go' });
+    expect(scalpRead('down', 90, 100, 4, { er: 0.3 })?.zone).toBe('stretched');
+    expect(scalpRead('neutral', 100, 100, 4, { er: 0 })).toBeUndefined();
+    expect(scalpRead('up', 100, 100, 4, undefined)).toBeUndefined();
   });
 });
 

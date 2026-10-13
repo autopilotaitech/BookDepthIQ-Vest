@@ -620,3 +620,12 @@ b { font-weight: 600; }
 .rv-tr .barcell .rv-bar { margin: 0; }
 .rv-tr .barcell > span:last-child { min-width: 120px; text-align: right; }
 .mini-presets { display: inline-flex; gap: 4px; align-items: center; margin: 2px 0; }
+/* SuperTrend scalp read */
+.scalpbadge { font-size: 11px; font-weight: 700; padding: 1px 6px; border-radius: 3px; border: 1px solid var(--line); white-space: nowrap; }
+.scalpbadge.go.long { color: #052e16; background: #4ade80; border-color: #15803d; }
+.scalpbadge.go.short { color: #450a0a; background: #f87171; border-color: #b91c1c; }
+.scalpbadge.near.long { color: #4ade80; border-color: #15803d; }
+.scalpbadge.near.short { color: #f87171; border-color: #b91c1c; }
+.scalpbadge.stretched { color: #fbbf24; border-color: #b45309; }
+.lrow .hl.nochase { border-top: 1px dotted #f59e0b; }
+.lrow .hltag.nochase { color: #fcd34d; border: 1px dotted #b45309; }

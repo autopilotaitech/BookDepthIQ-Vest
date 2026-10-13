@@ -237,7 +237,16 @@ floor** bar under the account row shows how much of the drawdown allowance is le
   at all (unless price nears the edge), so the row you aim at stays put.
 - Wheel over the PRICE column changes the price grouping: 1, 2, 4, 8, 20, 40 or 100 ticks per row.
 
-**Market state** (header, next to the SuperTrend badge), read from price, not SuperTrend flips:
+**SuperTrend scalp read** (header): which side ST1 is on and whether to take the scalp now.
+**▲ SCALP LONG — pullback to ST1** (solid) when price is within 2 ATR of the ST1 line and the last
+5 minutes are pulling back; **LONG side — wait for the dip** when it's near but still running;
+**STRETCHED x ATR — don't chase** past 2 ATR, with a dotted **NO CHASE** line on the ladder at
+ST1 ± 2 ATR. Measured on 72 h of Vest NQ (ST1-side scalps at every 1-minute close): at 10/10 pts
+the GO read won 63% (+1.3 pts/trade after ~1.25 pts round-trip taker fee); stretched won 48%
+(−1.7 after fees). At 5/5 pts even GO lost after fees: base hits need ~8+ pts on NQ. Past
+results on one sample, not a promise.
+
+**Market state** (in the scalp badge's tooltip; "· chop" on the badge), read from price, not SuperTrend flips:
 **TREND ▲ / ▼** when the last 15 minutes went one way efficiently (net move ÷ path ≥ 0.3) and far
 (≥ 3 ATR of the 1-minute bars), held until it clearly fades; **CHOP — fade the edges** otherwise,
 with the last 30 minutes' **RANGE H / RANGE L** drawn on the ladder (pinned at the edge

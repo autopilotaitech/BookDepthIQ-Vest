@@ -139,6 +139,37 @@ export function marketState(i: StateInput): StateView {
   return { state, extended, why };
 }
 
+// ───────────── SuperTrend scalp read ─────────────
+
+/** Measured on 72 h of Vest NQ (2026-10-09..12), an ST1-direction scalp taken at each 1-minute
+ * close, 10-pt target / 10-pt stop: within 2 ATR of the ST1 line AND the last 5 minutes pulling
+ * back won 63% (+2.5 pts/trade before ~1.25 pts round-trip taker fee; 68% / 56% in each half);
+ * 3+ ATR from the line won 47% (−0.7). TREND vs CHOP made no difference (51% vs 52%). */
+export const SCALP_NEAR_ATR = 2;
+export const SCALP_PULLBACK_BARS = 5;
+
+export type ScalpZone = 'go' | 'near' | 'stretched';
+
+export interface ScalpRead {
+  side: 'long' | 'short';
+  zone: ScalpZone;
+  /** Price's distance past the ST1 line, in ST1 ATR (+ = on the trend side). */
+  distAtr: number;
+  /** Efficiency of the last 5 minutes in the ST1 direction (< 0 = pulling back). */
+  pull: number;
+}
+
+/** Where an ST1 scalp stands now: GO (near the line and pulling back), NEAR (near, still running:
+ * wait for the dip) or STRETCHED (2+ ATR out: don't chase). Undefined while warming up. */
+export function scalpRead(st1: 'up' | 'down' | 'neutral', priceTicks: number | undefined, st1Line: number | undefined, atrTicks: number | undefined, r5: { er: number } | undefined): ScalpRead | undefined {
+  if (st1 === 'neutral' || priceTicks === undefined || st1Line === undefined || !atrTicks || !(atrTicks > 0) || !r5) return undefined;
+  const dir = st1 === 'up' ? 1 : -1;
+  const distAtr = (dir * (priceTicks - st1Line)) / atrTicks;
+  const pull = dir * r5.er;
+  const zone: ScalpZone = distAtr >= SCALP_NEAR_ATR ? 'stretched' : pull < 0 ? 'go' : 'near';
+  return { side: dir > 0 ? 'long' : 'short', zone, distAtr, pull };
+}
+
 // ───────────── trade journal ─────────────
 
 export interface JournalTrade {
