@@ -279,13 +279,12 @@ account) and Vest's live prices. It never sends an order.
   account's settings have the same **Instant** buttons. Check your own Vest screen.
 - **Use in DOM** writes the plan into the ticket: size mode **% room @SL** (the $ risk follows your
   room as it changes), SL and TP points, and opens that market if it isn't on screen.
-- **My max lev**: over it, the ticket asks for a second click (nothing is blocked). The ticket also
-  shows **% of room · losers left**, and an entry whose stop is past the fail line needs a second
-  click. With **PREVIEW** on, the FAIL line is on the ladder before you enter.
+- **My max lev**: over it, the ticket warns (nothing is blocked). The ticket also shows **% of
+  room · losers left**, and warns on an entry whose stop is past the fail line. With **PREVIEW** on, the FAIL line is on the ladder before you enter.
 
 **Pro tools (v1.8)**
 - **Header pills:** **FEED** (green under 2 s since Vest's last message, amber, then red STALE:
-  the ladder greys out and new entries are off; exits keep working) and, in LIVE, **VEST** (⚡ push
+  the ladder greys out and an entry warns, but still goes) and, in LIVE, **VEST** (⚡ push
   with Vest's median answer time for your orders, POLLING, or STALE).
 - **KILL ⏻** (or **Ctrl+K**, from anywhere): closes every position on every symbol at market and
   cancels every order, PAPER or LIVE. Never blocked.
@@ -295,8 +294,8 @@ account) and Vest's live prices. It never sends an order.
   check Vest before you resend.
 - **Fat-finger checks** above the ticket line: size vs your normal (last 20 journal trades), spread,
   distance of a limit/stop from the market (settings: *far from market pts*, 0 = 4 × ATR; *size ×
-  normal*), stop inside the spread. Any **!** or **✗** asks for a **second click on the same order
-  within 4 s**; the reason shows in the amber bar.
+  normal*), stop inside the spread. **Warnings only** (v1.9.2): one click always sends, like Vest's
+  own ticket; the warning shows in the amber bar and the order log.
 - **Day lock bar:** when Protect my day locks entries, a red bar over the ticket says why and that
   exits still work.
 - **heat 5m · pull/stack** column (toggle **heat** in the tape header): resting size at each price
@@ -323,6 +322,7 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
 
 | Version | What changed |
 |---|---|
+| 1.9.2 | Orders go on ONE click again: fat-finger checks and a stale feed warn instead of blocking. **Order log** (click *log*): every order click, hotkey, warning, block reason, Vest's answer and any error, kept across reloads, with **copy**. Hotkeys on SAFE say so instead of doing nothing. RISK: **Funding** (Silver/Gold/Platinum evaluation, 6% static floor, daily 3%/4%/none) next to Instant; Funding presets in paper settings. |
 | 1.9.1 | Stop entries fire on **touch** only: the trade that reaches your stop price fires it (PAPER too, from the tape). The 1m CLOSE option is gone. |
 | 1.9.0 | **RISK** calculator inside the panel (any market, live prices and leverage caps, risk map, leverage chart, every-market table, Use in DOM), **% room @SL** sizing, your own max leverage, fail-line check and preview FAIL line. **Instant** accounts ($500 / $5K / $10K / $25K, static floor) in RISK and the paper settings. **SuperTrend scalp read** (GO on a pullback to ST1 / wait / STRETCHED, NO CHASE line), TREND/CHOP read from price. |
 | 1.8.4 | Heatmap logic: 10 s cells are time-averaged (steady instead of random), coloured by the side the price was on then, brightness against the 90th percentile, yellow = wall (3× typical). |

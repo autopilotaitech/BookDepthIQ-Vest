@@ -771,7 +771,7 @@ export function App() {
     setNotice(verdict.message);
     return true;
   };
-  // ── Fat-finger checks: amber needs a second click on the same order within 4 s; nothing else blocks ──
+  // ── Fat-finger checks: warnings only, one click always sends ──
   const [notice, setNotice] = useState<string | null>(null);
   useEffect(() => {
     if (!notice) return;
@@ -799,24 +799,13 @@ export function App() {
       levAfter: refPx ? leverageUsed(openNotional + u * refPx, equity) : undefined,
       maxLev: s.maxLevUser,
     });
-  const confirmRef = useRef<{ key: string; until: number } | null>(null);
-  /** True (and asks for the second click) when this order's checks have a warning. */
-  const confirmBlocked = (key: string, ck: TradeCheck[]): boolean => {
-    if (!needsConfirm(ck)) {
-      confirmRef.current = null;
-      return false;
-    }
-    const c = confirmRef.current;
-    if (c && c.key === key && Date.now() < c.until) {
-      confirmRef.current = null;
-      return false;
-    }
-    confirmRef.current = { key, until: Date.now() + 4000 };
-    const msg = `${ck.filter((x) => x.level !== 'ok').map((x) => x.text).join(' · ')} — click again within 4 s to send`;
-    olAdd('blocked', `needs a second click: ${msg}`);
+  /** Fat-finger checks WARN only (owner, 2026-10-13: like Vest's ticket, one click sends). Never blocks. */
+  const confirmBlocked = (_key: string, ck: TradeCheck[]): boolean => {
+    if (!needsConfirm(ck)) return false;
+    const msg = `sent with warning: ${ck.filter((x) => x.level !== 'ok').map((x) => x.text).join(' · ')}`;
+    olAdd('click', msg);
     setNotice(msg);
-    if (live) setLiveLast({ ok: false, message: msg });
-    return true;
+    return false;
   };
   // ── Connection health ──
   const nowH = Date.now();
@@ -824,14 +813,13 @@ export function App() {
   const health = m.replay ? 'live' : feedHealth(feedAge, m.socketOpen);
   const vestHealth = !L.positionsFresh() ? 'stale' : L.pushOpen ? 'live' : 'slow';
   const ackP = percentiles(L.blotter.ackTimes().slice(0, 20));
-  /** Entries are off while the market feed is stale (exits never are). */
+  /** A stale feed WARNS only (owner, 2026-10-13): the order still goes, Vest prices it. */
   const feedBlocked = (): boolean => {
     if (health !== 'stale') return false;
-    const msg = 'market data is stale — entries are off until it is back (FLATTEN, CANCEL and KILL work)';
-    olAdd('blocked', `${msg} · feed age ${feedAge === undefined ? 'none' : `${Math.round(feedAge / 1000)} s`}, socket ${m.socketOpen ? 'open' : 'closed'}`);
+    const msg = `market data looks stale (feed age ${feedAge === undefined ? 'none' : `${Math.round(feedAge / 1000)} s`}, socket ${m.socketOpen ? 'open' : 'closed'}) — sent anyway`;
+    olAdd('click', msg);
     setNotice(msg);
-    if (live) setLiveLast({ ok: false, message: msg });
-    return true;
+    return false;
   };
   /** KILL: every position on every symbol closed at market, every order cancelled. Never blocked. */
   const killNow = () => {
@@ -1695,11 +1683,11 @@ Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warmi
             LIVE size cap u (0 = off)
             <input type="number" min={0} step={0.001} value={s.liveSizeCap} onChange={(e) => update({ liveSizeCap: Math.max(0, Number(e.target.value) || 0) })} />
           </label>
-          <label title="fat-finger: a limit or stop this far from the market asks for a second click (0 = 4 × ATR)">
+          <label title="fat-finger: a limit or stop this far from the market shows a warning (0 = 4 × ATR); it still sends">
             far from market pts
             <input type="number" min={0} step={1} value={s.ffFarPts} onChange={(e) => update({ ffFarPts: Math.max(0, Number(e.target.value) || 0) })} />
           </label>
-          <label title="fat-finger: a size this many × your normal (last 20 trades) asks for a second click">
+          <label title="fat-finger: a size this many × your normal (last 20 trades) shows a warning; it still sends">
             size × normal
             <input type="number" min={1} step={0.5} value={s.ffSizeMult} onChange={(e) => update({ ffSizeMult: Math.max(1, Number(e.target.value) || 2) })} />
           </label>
@@ -2491,7 +2479,7 @@ Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warmi
         {(() => {
           const ck = checksFor(units, undefined);
           return ck.length ? (
-            <div className="checks" title="fat-finger checks for the next order: ! needs a second click; ✗ would fill at once or be rejected">
+            <div className="checks" title="fat-finger checks for the next order: warnings only — one click sends">
               {ck.map((c, i) => (
                 <i key={i} className={c.level}>
                   {c.level === 'ok' ? '✓' : c.level === 'warn' ? '!' : '✗'} {c.text}

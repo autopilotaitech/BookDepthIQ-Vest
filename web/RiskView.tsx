@@ -297,7 +297,7 @@ export function RiskView(p: RiskViewProps) {
                 <input value={plan ? plan.max : String(levCap)} disabled={!plan} onChange={(e) => plan && setPlan({ ...plan, max: e.target.value })} />x
               </span>
             </label>
-            <label className="rv-field" title="the DOM asks for a second click on an entry over this leverage (0 = off). Nothing is blocked.">
+            <label className="rv-field" title="the DOM warns on an entry over this leverage (0 = off). Nothing is blocked.">
               <span className="rv-lbl">My max lev</span>
               <span className="rv-inp">
                 <input type="number" min={0} step={1} value={s.maxLevUser} onChange={(e) => update({ maxLevUser: Math.max(0, Math.round(Number(e.target.value) || 0)) })} />x

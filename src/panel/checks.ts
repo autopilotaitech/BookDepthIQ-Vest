@@ -1,6 +1,6 @@
 // Pre-trade ("fat-finger") checks shown in the ticket, and connection health. Pure: no I/O.
-// Checks never block on their own: an amber check asks for a second click on the same order; only
-// the user's own limits (Protect my day) and a stale feed refuse an entry.
+// Checks never block: they show in the ticket and the order log, and the order goes on one click
+// (owner, 2026-10-13). Only the user's own limits (Protect my day) refuse an entry.
 
 export type CheckLevel = 'ok' | 'warn' | 'bad';
 
@@ -49,7 +49,7 @@ export function tradeChecks(i: CheckInput): TradeCheck[] {
   return out;
 }
 
-/** True when an order with these checks needs a second click. */
+/** True when an order with these checks carries a warning. */
 export function needsConfirm(checks: TradeCheck[]): boolean {
   return checks.some((c) => c.level !== 'ok');
 }
