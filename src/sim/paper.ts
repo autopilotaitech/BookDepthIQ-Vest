@@ -30,8 +30,6 @@ export interface WorkingOrder {
   /** Entry orders: the bracket as it was when you clicked (so a fill later uses the same stop the
    * size was worked out from). */
   bracket?: BracketSettings;
-  /** Stop entries: fire only on a one-minute close at/through the price. */
-  confirmClose?: boolean;
 }
 
 export interface Fill {
@@ -93,8 +91,6 @@ export class PaperBroker {
   private book: Book | null = null;
   /** B/E after TP1 already done for the current position. */
   private beDone = false;
-  private printMinute: number | undefined;
-  private printLast: number | undefined;
   /** Trailing stop for the current position: risk in ticks at entry, best exit price since. */
   private trailRisk = 0;
   private trailBest: number | undefined;
@@ -138,7 +134,7 @@ export class PaperBroker {
     return ok(`${side.toUpperCase()} LMT ${q} @ ${this.px(priceTicks)}`);
   }
 
-  stopOrder(side: Side, qty: number, priceTicks: number, now = Date.now(), bracket?: BracketSettings, confirmClose = false): Result {
+  stopOrder(side: Side, qty: number, priceTicks: number, now = Date.now(), bracket?: BracketSettings): Result {
     const q = this.roundQty(qty);
     if (q <= 0) return refuse('quantity must be > 0');
     if (!this.hasBook) return refuse('no book yet');
@@ -147,26 +143,22 @@ export class PaperBroker {
     const ask = bestAsk(this.book!)!;
     if (side === 'buy' && priceTicks <= ask) return refuse('buy stop must be above the ask');
     if (side === 'sell' && priceTicks >= bid) return refuse('sell stop must be below the bid');
-    this.orders.push({ id: this.nextOrderId++, side, type: 'stop', priceTicks, qty: q, reduceOnly: false, bracket, confirmClose });
+    this.orders.push({ id: this.nextOrderId++, side, type: 'stop', priceTicks, qty: q, reduceOnly: false, bracket });
     this.match(now);
-    return ok(`${side.toUpperCase()} STP ${q} @ ${this.px(priceTicks)}${confirmClose ? ' (fires on a 1-min close)' : ''}`);
+    return ok(`${side.toUpperCase()} STP ${q} @ ${this.px(priceTicks)}`);
   }
 
   /**
-   * A trade printed on this market. Stop entries that wait for a one-minute close fire on the first
-   * trade of a new minute when the previous minute closed at/through them.
+   * A trade printed on this market. A stop entry fires on the first trade that touches it (at or
+   * through), as LIVE panel-held stops do, even if the book has not shown the move yet.
    */
   onTradePrint(priceTicks: number, timeMs: number): void {
-    const minute = Math.floor(timeMs / 60_000);
-    const closed = this.printMinute !== undefined && minute > this.printMinute ? this.printLast : undefined;
-    this.printMinute = minute;
-    this.printLast = priceTicks;
-    if (closed === undefined || !this.hasBook) return;
-    const due = this.orders.filter((o) => o.confirmClose && (o.side === 'buy' ? closed >= o.priceTicks : closed <= o.priceTicks));
+    if (!this.hasBook) return;
+    const due = this.orders.filter((o) => o.type === 'stop' && !o.leg && !o.reduceOnly && (o.side === 'buy' ? priceTicks >= o.priceTicks : priceTicks <= o.priceTicks));
     for (const o of due) {
       this.orders = this.orders.filter((x) => x !== o);
       const before = this.position.qty;
-      if (this.executeMarket(o.side, o.qty, o.id, timeMs, 'stop (1-min close)')) this.afterEntryFill(before, o.bracket);
+      if (this.executeMarket(o.side, o.qty, o.id, timeMs, 'stop (touched)')) this.afterEntryFill(before, o.bracket);
     }
   }
 
@@ -306,9 +298,7 @@ export class PaperBroker {
       const bid = bestBid(this.book!)!;
       const ask = bestAsk(this.book!)!;
       const due = this.orders.find((o) =>
-        o.confirmClose
-          ? false
-          : o.type === 'limit'
+        o.type === 'limit'
           ? o.side === 'buy'
             ? ask <= o.priceTicks
             : bid >= o.priceTicks

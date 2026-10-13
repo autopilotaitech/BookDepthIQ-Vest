@@ -83,18 +83,11 @@ describe('journal', () => {
   });
 });
 
-describe('close-confirmed stop entries', () => {
-  it('a wick through the stop does not fire it; a 1-min close through it does, on the next trade', () => {
-    const b = new StopBook();
-    expect(b.arm({ symbol: 'X', side: 'buy', ticks: 110, units: 1, bracketsOn: false, tpTicks: 0, slTicks: 0, armedAt: 0, confirm: 'close' }, 100, 101).ok).toBe(true);
-    expect(b.onTrade('X', 112, T0 + 1000)).toHaveLength(0); // wick through
-    expect(b.onTrade('X', 105, T0 + 50_000)).toHaveLength(0); // minute closes back under
-    expect(b.onTrade('X', 111, T0 + MIN + 30_000)).toHaveLength(0); // first minute closed at 105: no
-    expect(b.onTrade('X', 111, T0 + 2 * MIN + 1000)).toHaveLength(1); // minute closed at 111: fire
-  });
+describe('stop entries', () => {
   it('touch stops still fire on the first trade through', () => {
     const b = new StopBook();
     b.arm({ symbol: 'X', side: 'sell', ticks: 90, units: 1, bracketsOn: false, tpTicks: 0, slTicks: 0, armedAt: 0 }, 100, 101);
-    expect(b.onTrade('X', 90, T0)).toHaveLength(1);
+    expect(b.onTrade('X', 91)).toHaveLength(0);
+    expect(b.onTrade('X', 90)).toHaveLength(1);
   });
 });

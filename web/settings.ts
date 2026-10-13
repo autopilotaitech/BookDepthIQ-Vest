@@ -61,8 +61,6 @@ export interface Settings {
   swingBufTicks: number;
   /** Swing stop never closer than this (ticks; 0 = no floor). */
   swingMinTicks: number;
-  /** Stop entries fire on a trade at/through the price ('touch') or on a 1-min close ('close'). */
-  stopConfirm: 'touch' | 'close';
   /** Setup tag recorded with each trade in the journal. */
   setup: string;
   /** Side panel shows the trade journal instead of the tape. */
@@ -141,7 +139,6 @@ export const DEFAULTS: Settings = {
   swingMins: 15,
   swingBufTicks: 4,
   swingMinTicks: 0,
-  stopConfirm: 'touch',
   setup: '',
   showJournal: false,
   showHeat: true,

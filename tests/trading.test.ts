@@ -859,21 +859,15 @@ describe('LIVE trail set mid-trade', () => {
   });
 });
 
-describe('LIVE close-confirmed stop entry', () => {
-  it('arms with confirm=close and fires one market entry on the close, not the wick', async () => {
+describe('LIVE stop entry fires on touch', () => {
+  it('one market entry on the first trade at the stop', async () => {
     const x = await liveSession(vest());
     const { s, calls } = x;
-    x.advance(60_000 - (1_791_000_000_000 % 60_000) + 1000); // 1 s into a fresh minute
-    expect(s.armStop('buy', 125820, 0.001, MKT, { bracketsOn: false, tpTicks: 0, slTicks: 0 }, 'close').message).toMatch(/1-min CLOSE/);
-    await s.onMarketTrade(125822, MKT); // wick through
-    x.advance(20_000);
-    await s.onMarketTrade(125810, MKT); // back under: this minute closes at 125810
-    x.advance(45_000);
-    await s.onMarketTrade(125822, MKT); // new minute: previous close 125810 < stop → nothing
+    expect(s.armStop('buy', 125820, 0.001, MKT, { bracketsOn: false, tpTicks: 0, slTicks: 0 }).message).toMatch(/on a trade at\/through it/);
+    await s.poll();
+    await s.onMarketTrade(125819, MKT);
     expect(writes(calls)).toHaveLength(0);
-    x.advance(60_000);
-    await s.poll(); // positions read (every 1.5 s in real use), so the entry check passes
-    await s.onMarketTrade(125823, { ...MKT, bid: 125822, ask: 125824 }); // previous minute closed 125822 ≥ stop → fire
+    await s.onMarketTrade(125820, { ...MKT, bid: 125819, ask: 125821 }); // touch
     const w = writes(calls);
     expect(w).toHaveLength(1);
     expect(w[0]!.body).toMatchObject({ orderType: 'market', side: 'long' });

@@ -25,17 +25,12 @@ export interface ArmedStop {
   trailStartR?: number;
   /** Or a SuperTrend trail: 1 = ST1, 2 = ST2. */
   trailLine?: 1 | 2;
-  /** 'touch' (default): fires on the first trade at/through the stop. 'close': only when a ONE-MINUTE
-   * CLOSE is at/through it (owner OK 2026-10-12), so a wick through the level does not fire it. */
-  confirm?: 'touch' | 'close';
   armedAt: number;
 }
 
 export class StopBook {
   private stops: ArmedStop[] = [];
   private nextId = 1;
-  /** Per symbol: the minute of the last trade and its price (that minute's close so far). */
-  private tape = new Map<string, { minute: number; last: number }>();
 
   /** Arm a stop. Refused when it would fire at once (buy stop not above the ask, sell stop not below the bid). */
   arm(s: Omit<ArmedStop, 'id'>, bid: number | undefined, ask: number | undefined): Check & { stop?: ArmedStop } {
@@ -80,18 +75,9 @@ export class StopBook {
     return n - this.stops.length;
   }
 
-  /**
-   * A trade printed: remove and return every stop it triggers (one-shot). Touch stops fire on this
-   * trade; close stops fire on the first trade of a new minute when the PREVIOUS minute closed
-   * at/through them.
-   */
-  onTrade(symbol: string, priceTicks: number, nowMs = Date.now()): ArmedStop[] {
-    const minute = Math.floor(nowMs / 60_000);
-    const prev = this.tape.get(symbol);
-    const closed = prev && minute > prev.minute ? prev.last : undefined;
-    this.tape.set(symbol, { minute, last: priceTicks });
-    const hit = (s: ArmedStop, px: number) => (s.side === 'buy' ? px >= s.ticks : px <= s.ticks);
-    const fired = this.stops.filter((s) => s.symbol === symbol && (s.confirm === 'close' ? closed !== undefined && hit(s, closed) : hit(s, priceTicks)));
+  /** A trade printed: remove and return every stop it touches (at or through; one-shot). */
+  onTrade(symbol: string, priceTicks: number): ArmedStop[] {
+    const fired = this.stops.filter((s) => s.symbol === symbol && (s.side === 'buy' ? priceTicks >= s.ticks : priceTicks <= s.ticks));
     if (fired.length) this.stops = this.stops.filter((s) => !fired.includes(s));
     return fired;
   }

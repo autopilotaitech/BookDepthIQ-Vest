@@ -94,7 +94,7 @@ Every LIVE launch starts in PAPER again. LIVE is never remembered.
 | **BUY MKT / SELL MKT** buttons | market fill | market order, with TP/SL legs if BRACKET is on |
 | Click the **BUY** / **SELL** column at a price | limit order | **limit order** (GTC) with TP/SL legs at your points from that price |
 | Click with **SCALE ON** | 2–10 limits | **scale order** like Vest's own: the first limit opens, the rest are added to the same position (no TP/SL) |
-| **Shift+click** the BUY / SELL column | stop order | **panel-held stop**: a buy stop above the ask or sell stop below the bid. When a trade prints at or through it (or, with **STP 1m CLOSE**, when a one-minute bar closes at or through it), the panel sends a **market** entry with your TP/SL (dashed STP chip; click to cancel, drag to move) |
+| **Shift+click** the BUY / SELL column | stop order | **panel-held stop**: a buy stop above the ask or sell stop below the bid. When a trade prints at or through it, the panel sends a **market** entry with your TP/SL (dashed STP chip; click to cancel, drag to move) |
 | Click an **LMT** chip | cancel | cancel on Vest |
 | Drag an **LMT** chip to another row | move | move on Vest (cancel, then re-place the unfilled size at the new price; TP/SL shift with it) |
 | Drag a **TP** / **SL** chip | move the leg | move the leg on Vest (each partial target on its own) |
@@ -200,11 +200,6 @@ and delta count from when the panel opens.
   your **≥ min** (0 = no floor; an entry right at the high/low would otherwise get a stop inside
   the noise). The ticket shows both sides (**L x / S y pts**) and, in $ risk sizing, both sizes. In both modes the targets are R
   multiples of the stop and the size follows it, so the $ risk stays the same.
-- **STP TOUCH / 1m CLOSE** (TOUCH by default): stop entries (shift-click) fire on the first trade
-  through the price, or, with 1m CLOSE, only once a one-minute bar closes through it, so a spike
-  that pokes through and comes back doesn't fill you on a false break. A 1m CLOSE chip says what
-  it is waiting for: **1m CLOSE: waits for a close ≥ X** while price is short of it, and
-  **through — fires in Ns if it holds** (green) when price is through it mid-minute.
 - **setup** tags the next trade (edge fade, breakout, pullback, trend…) for the journal.
 - **PREVIEW LONG / SHORT** shows the stop and targets (◇, dashed) on the ladder before you enter,
   with their $. Nothing is sent. Drag the ◇ stop to change it: in $ risk sizing the size follows, so
@@ -328,7 +323,8 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
 
 | Version | What changed |
 |---|---|
-| 1.9.0 | **RISK** calculator inside the panel (any market, live prices and leverage caps, risk map, leverage chart, every-market table, Use in DOM), **% room @SL** sizing, your own max leverage, fail-line check and preview FAIL line. **Instant** accounts ($500 / $5K / $10K / $25K, static floor) in RISK and the paper settings. **SuperTrend scalp read** (GO on a pullback to ST1 / wait / STRETCHED, NO CHASE line), TREND/CHOP read from price. 1m CLOSE stop chips say what they wait for. |
+| 1.9.1 | Stop entries fire on **touch** only: the trade that reaches your stop price fires it (PAPER too, from the tape). The 1m CLOSE option is gone. |
+| 1.9.0 | **RISK** calculator inside the panel (any market, live prices and leverage caps, risk map, leverage chart, every-market table, Use in DOM), **% room @SL** sizing, your own max leverage, fail-line check and preview FAIL line. **Instant** accounts ($500 / $5K / $10K / $25K, static floor) in RISK and the paper settings. **SuperTrend scalp read** (GO on a pullback to ST1 / wait / STRETCHED, NO CHASE line), TREND/CHOP read from price. |
 | 1.8.4 | Heatmap logic: 10 s cells are time-averaged (steady instead of random), coloured by the side the price was on then, brightness against the 90th percentile, yellow = wall (3× typical). |
 | 1.8.0 | KILL, FEED/VEST health pills, LIVE order status + blotter, fat-finger checks (second click), day-lock bar, heat/pull/stack column, record + replay, execution columns in the journal. |
 | 1.7.1 | Swing stop **≥ min** floor; SuperTrend loads 45 min of history on open; RANGE H/L pinned when off-screen. |
@@ -376,7 +372,6 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
 | Login flickers, or LIVE behaves oddly | **Close extra Vest tabs.** Keep one. |
 | Pressing LIVE seems to do nothing | Read the red text next to the PAPER/LIVE switch. It says exactly why. |
 | An order is refused | Read the red result bar under the LIVE banner. |
-| A **1m CLOSE** stop didn't fire when price went through it | Expected: it fires only when a one-minute bar **closes** at or through the price, on the first trade of the next minute. Read the chip. For a fill on the first trade through, switch the button to **STP TOUCH**. |
 | The header says **STRETCHED — don't chase** in a strong move | Price is 2+ ATR past the ST1 line; scalps from there lost on the measured NQ data. Wait for a pullback toward ST1 (**SCALP LONG/SHORT — pullback to ST1**). |
 | RISK numbers don't match my account | Paper: settings → **Instant** buttons or type your start value, drawdown and leverage. LIVE reads them from Vest. RISK → **Instant / Custom** plans any other package. |
 | Something looks wrong on Vest | Press **FLATTEN**, check Vest's own screen, then open an issue with the copied LIVE log. |
