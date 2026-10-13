@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { bestAsk, bestBid } from '../src/book/book';
 import { PanelModel } from '../src/panel/model';
 import { formatPrice, tickDecimals, type BracketSettings, type Result, type Side, type WorkingOrder } from '../src/sim/paper';
-import { journalCsv, journalStats, marketState, rMultiple, swingStopTicks, type JournalTrade } from '../src/panel/structure';
+import { journalCsv, journalStats, marketState, rMultiple, swingStopTicks, type JournalTrade, type MarketState } from '../src/panel/structure';
 import { feedHealth, needsConfirm, percentiles, tradeChecks, type TradeCheck } from '../src/panel/checks';
 import type { Session } from '../src/panel/replay';
 import { failPrice, leverageUsed, marginUsed, maxUnits, unitsForNotional } from '../src/sim/account';
@@ -394,6 +394,8 @@ export function App() {
   const [liveWhy, setLiveWhy] = useState('');
   /** Last footprint imbalances, so a lit cell does not blink when its ratio wobbles around 3:1. */
   const imbMemo = useRef<{ key: string; buy: Set<number>; sell: Set<number> }>({ key: '', buy: new Set(), sell: new Set() });
+  /** Last TREND/CHOP shown, so a trend holds until it has clearly faded (structure.ts). */
+  const prevState = useRef<MarketState | undefined>(undefined);
   /** Result of the last LIVE action, shown under the banner: a refusal must never look like nothing. */
   const [liveLast, setLiveLast] = useState<Result | null>(null);
   // Stops fire from the trade feed, not a click: surface their result in the same bar.
@@ -1084,15 +1086,17 @@ export function App() {
   const flipFresh = m.lastFlip !== null && Date.now() - m.lastFlip.at < 5000;
   // CHOP vs TREND, and EXTENDED (don't chase). See structure.ts.
   const mstate = marketState({
+    regime: m.bars.regime(Date.now()),
+    prev: prevState.current,
     st1: tr.t1.dir,
     st2: tr.t2.dir,
-    flips15: m.flips.filter((t) => t > Date.now() - 15 * 60_000).length,
     price: m.lastTradeTicks,
     vwap: m.vwap.value(),
     vwapSigma: m.vwap.sigma(),
     st1Line: tr.t1.lineTicks,
     atrTicks: atrT,
   });
+  prevState.current = mstate.state;
   // Level lines drawn across ladder rows (like the ST lines): VWAP + σ bands, stacked-imbalance
   // zones, big prints. Keyed by row; each row can carry several.
   const vwapT = ind.vwapOn ? m.vwap.value() : undefined;

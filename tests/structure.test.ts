@@ -25,17 +25,36 @@ describe('minute bars and swing stops', () => {
 });
 
 describe('market state', () => {
-  const base = { flips15: 0, price: 100, vwap: 100, vwapSigma: 10, st1Line: 95, atrTicks: 4 };
-  it('trend when both lines agree, chop when they disagree or keep flipping', () => {
-    expect(marketState({ ...base, st1: 'up', st2: 'up' }).state).toBe('trend-up');
-    expect(marketState({ ...base, st1: 'up', st2: 'down' }).state).toBe('chop');
-    expect(marketState({ ...base, st1: 'down', st2: 'down', flips15: 3 }).state).toBe('chop');
-    expect(marketState({ ...base, st1: 'neutral', st2: 'up' }).state).toBe('warming');
+  const base = { st1: 'up' as const, st2: 'up' as const, price: 100, vwap: 100, vwapSigma: 10, st1Line: 95, atrTicks: 4 };
+  const rg = (er: number, moveAtr: number) => ({ regime: { er, moveAtr } });
+  it('trend from price: efficient and far; chop when back and forth, whatever the SuperTrends say', () => {
+    expect(marketState({ ...base, ...rg(0.5, 4) }).state).toBe('trend-up');
+    expect(marketState({ ...base, st1: 'up', st2: 'down', ...rg(0.5, 4) }).state).toBe('trend-up'); // lines disagree: still a trend
+    expect(marketState({ ...base, ...rg(-0.4, -3.5) }).state).toBe('trend-down');
+    expect(marketState({ ...base, ...rg(0.1, 1) }).state).toBe('chop');
+    expect(marketState({ ...base, ...rg(0.6, 2) }).state).toBe('chop'); // efficient but small
+    expect(marketState({ ...base, regime: undefined }).state).toBe('warming');
+  });
+  it('a trend holds until it has clearly faded', () => {
+    expect(marketState({ ...base, ...rg(0.2, 2), prev: 'trend-up' }).state).toBe('trend-up');
+    expect(marketState({ ...base, ...rg(0.2, 2), prev: 'chop' }).state).toBe('chop');
+    expect(marketState({ ...base, ...rg(0.1, 2), prev: 'trend-up' }).state).toBe('chop');
   });
   it('extended at 2σ from VWAP or 3 ATR from ST1', () => {
-    expect(marketState({ ...base, st1: 'up', st2: 'up', price: 121 }).extended).toBe('up');
-    expect(marketState({ ...base, st1: 'up', st2: 'up', price: 108, st1Line: 95 }).extended).toBe('up'); // 13 ticks = 3.25 ATR
-    expect(marketState({ ...base, st1: 'down', st2: 'down', price: 99, st1Line: 101 }).extended).toBeUndefined();
+    expect(marketState({ ...base, ...rg(0.5, 4), price: 121 }).extended).toBe('up');
+    expect(marketState({ ...base, ...rg(0.5, 4), price: 108, st1Line: 95 }).extended).toBe('up'); // 13 ticks = 3.25 ATR
+    expect(marketState({ ...base, ...rg(-0.5, -4), price: 99, st1Line: 101 }).extended).toBeUndefined();
+  });
+  it('regime from minute bars: a straight run vs back and forth', () => {
+    const run = new MinuteBars();
+    for (let k = 0; k <= 20; k++) run.add(k * 60_000, 100 + k * 4);
+    const r = run.regime(20 * 60_000)!;
+    expect(r.er).toBeCloseTo(1);
+    expect(r.moveAtr).toBeGreaterThan(3);
+    const saw = new MinuteBars();
+    for (let k = 0; k <= 20; k++) saw.add(k * 60_000, k % 2 ? 110 : 100);
+    expect(Math.abs(saw.regime(20 * 60_000)!.er)).toBeLessThan(0.1);
+    expect(new MinuteBars().regime(0)).toBeUndefined();
   });
 });
 

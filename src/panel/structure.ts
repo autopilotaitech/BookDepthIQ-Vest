@@ -44,7 +44,36 @@ export class MinuteBars {
     }
     return Number.isFinite(hi) ? { hi, lo } : undefined;
   }
+
+  /**
+   * How a market is moving over the last `n` one-minute bars up to `nowMs` (this minute included,
+   * its close = the last trade): efficiency = net move ÷ the path it took (−1..1; ±1 = straight
+   * line, ~0 = back and forth) and the net move in ATR (14-bar Wilder ATR of the 1-minute bars).
+   * Undefined until there are n + 1 bars.
+   */
+  regime(nowMs: number, n = REGIME_BARS): { er: number; moveAtr: number } | undefined {
+    const now = Math.floor(nowMs / 60_000);
+    const bs = [...this.bars.entries()].filter(([k]) => k <= now).sort((a, b) => a[0] - b[0]).map(([, b]) => b);
+    if (bs.length < n + 1) return undefined;
+    let atr = 0;
+    bs.forEach((b, i) => {
+      const tr = i ? Math.max(b.hi - b.lo, Math.abs(b.hi - bs[i - 1]!.close), Math.abs(b.lo - bs[i - 1]!.close)) : b.hi - b.lo;
+      atr = i < 14 ? (atr * i + tr) / (i + 1) : atr + (tr - atr) / 14;
+    });
+    const last = bs.length - 1;
+    let path = 0;
+    for (let k = last - n + 1; k <= last; k++) path += Math.abs(bs[k]!.close - bs[k - 1]!.close);
+    const net = bs[last]!.close - bs[last - n]!.close;
+    return { er: path > 0 ? net / path : 0, moveAtr: atr > 0 ? net / atr : 0 };
+  }
 }
+
+/** Regime window and thresholds, measured on 12 h of Vest NQ trades (2026-10-12): with these a
+ * move under way (≥ 3 ATR in 10 min) read TREND 90% of the time (SuperTrend agreement: 74%) and a
+ * quiet market read TREND 12% (was 39%). Neither the old nor the new read predicts the NEXT 15 min. */
+export const REGIME_BARS = 15;
+export const REGIME_ER = 0.3;
+export const REGIME_ATR = 3;
 
 /**
  * Swing stop distance in ticks from `refTicks`: a long's stop goes `bufTicks` under the swing low,
@@ -59,10 +88,12 @@ export function swingStopTicks(long: boolean, refTicks: number, range: { hi: num
 export type MarketState = 'trend-up' | 'trend-down' | 'chop' | 'warming';
 
 export interface StateInput {
+  /** MinuteBars.regime(): efficiency and net move in ATR over the last 15 minutes. */
+  regime: { er: number; moveAtr: number } | undefined;
+  /** The state last shown, for hysteresis (a trend holds until it has clearly faded). */
+  prev?: MarketState;
   st1: 'up' | 'down' | 'neutral';
   st2: 'up' | 'down' | 'neutral';
-  /** SuperTrend flips (either line) in the last 15 minutes. */
-  flips15: number;
   price: number | undefined;
   vwap: number | undefined;
   /** VWAP σ in ticks. */
@@ -79,24 +110,24 @@ export interface StateView {
 }
 
 /**
- * TREND when both SuperTrends agree and haven't been flipping; CHOP when they disagree or have
- * flipped 3+ times in 15 min (trade the range edges, not breakouts). EXTENDED when price is 2σ+
- * from VWAP or 3+ ATR from ST1 (late to chase).
+ * Read from price itself, not from SuperTrend flips (the fast line flips on every pullback, which
+ * called CHOP in the middle of runs). TREND when the last 15 minutes went one way efficiently
+ * (efficiency ≥ 0.3) and far (≥ 3 ATR); it holds until efficiency drops under half that or the
+ * move under 1.5 ATR. Otherwise CHOP (trade the range edges, not breakouts). EXTENDED when price
+ * is 2σ+ from VWAP or 3+ ATR from ST1 (late to chase). It describes what is happening now; it
+ * does not forecast.
  */
 export function marketState(i: StateInput): StateView {
-  if (i.st1 === 'neutral' || i.st2 === 'neutral') return { state: 'warming', why: 'SuperTrend warming up' };
-  let state: MarketState;
-  let why: string;
-  if (i.st1 !== i.st2) {
-    state = 'chop';
-    why = 'ST1 and ST2 disagree';
-  } else if (i.flips15 >= 3) {
-    state = 'chop';
-    why = `${i.flips15} SuperTrend flips in 15 min`;
-  } else {
-    state = i.st1 === 'up' ? 'trend-up' : 'trend-down';
-    why = `ST1 and ST2 both ${i.st1}`;
-  }
+  const r = i.regime;
+  if (!r) return { state: 'warming', why: `needs ${REGIME_BARS + 1} minutes of trades` };
+  const up = r.er >= REGIME_ER && r.moveAtr >= REGIME_ATR;
+  const down = r.er <= -REGIME_ER && r.moveAtr <= -REGIME_ATR;
+  const holdUp = i.prev === 'trend-up' && r.er >= REGIME_ER / 2 && r.moveAtr >= REGIME_ATR / 2;
+  const holdDown = i.prev === 'trend-down' && r.er <= -REGIME_ER / 2 && r.moveAtr <= -REGIME_ATR / 2;
+  const state: MarketState = up || holdUp ? 'trend-up' : down || holdDown ? 'trend-down' : 'chop';
+  const fmt = `15m: ${r.moveAtr >= 0 ? '+' : ''}${r.moveAtr.toFixed(1)} ATR, efficiency ${Math.abs(r.er).toFixed(2)}`;
+  let why = state === 'chop' ? `${fmt} — back and forth` : `${fmt}${up || down ? '' : ' (holding)'}`;
+  if (state !== 'chop' && i.st1 !== 'neutral' && i.st1 !== (state === 'trend-up' ? 'up' : 'down')) why += ' · ST1 against';
   let extended: 'up' | 'down' | undefined;
   if (i.price !== undefined) {
     const vz = i.vwap !== undefined && i.vwapSigma && i.vwapSigma > 0 ? (i.price - i.vwap) / i.vwapSigma : 0;

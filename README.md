@@ -237,9 +237,10 @@ floor** bar under the account row shows how much of the drawdown allowance is le
   at all (unless price nears the edge), so the row you aim at stays put.
 - Wheel over the PRICE column changes the price grouping: 1, 2, 4, 8, 20, 40 or 100 ticks per row.
 
-**Market state** (header, next to the SuperTrend badge): **TREND ▲ / ▼** when ST1 and ST2 agree
-and haven't been flipping; **CHOP — fade the edges** when they disagree or have flipped 3+ times in
-15 min, with the last 30 minutes' **RANGE H / RANGE L** drawn on the ladder (pinned at the edge
+**Market state** (header, next to the SuperTrend badge), read from price, not SuperTrend flips:
+**TREND ▲ / ▼** when the last 15 minutes went one way efficiently (net move ÷ path ≥ 0.3) and far
+(≥ 3 ATR of the 1-minute bars), held until it clearly fades; **CHOP — fade the edges** otherwise,
+with the last 30 minutes' **RANGE H / RANGE L** drawn on the ladder (pinned at the edge
 when off-screen); **EXTENDED, don't
 chase** when price is 2σ+ from VWAP or 3+ ATR from ST1. It describes the market; it doesn't call
 trades.
