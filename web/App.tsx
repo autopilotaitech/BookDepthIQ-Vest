@@ -1146,9 +1146,10 @@ export function App() {
   // against it before entry.
   const failRow =
     failTicksPos ?? (pvRef !== undefined && pos.qty === 0 && units > 0 && ddLeft > 0 ? pvRef - (pvLong ? 1 : -1) * Math.floor(ddLeft / units / tick) : undefined);
-  // v0.8 ladder columns: buy · sold · bid liq · price · ask liq · bought · sell · [P&L] · profile · [Δ]
+  // Ladder columns: [heat · pull/stack] · buy · sold · bid liq · price · ask liq · bought · sell · [P&L] · profile · [Δ]
+  // (heat moved to the far left, next to BUY — owner, 2026-10-13)
   const showPnl = pos.qty !== 0;
-  const cols = ['0.5fr', '0.62fr', '0.9fr', '1fr', '0.9fr', '0.62fr', '0.5fr', ...(showPnl ? ['0.7fr'] : []), ...(s.showHeat ? ['1fr'] : []), '1.35fr', ...(s.showDelta ? ['0.7fr'] : [])].join(' ');
+  const cols = [...(s.showHeat ? ['1fr'] : []), '0.5fr', '0.62fr', '0.9fr', '1fr', '0.9fr', '0.62fr', '0.5fr', ...(showPnl ? ['0.7fr'] : []), '1.35fr', ...(s.showDelta ? ['0.7fr'] : [])].join(' ');
   const gridStyle = { gridTemplateColumns: cols };
   // Header sparkline of session cumulative delta (last 120 trades).
   const spark = (() => {
@@ -2014,6 +2015,11 @@ Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warmi
             style={gridStyle}
             title="click = limit · shift+click = stop · chip: click cancel / drag move · wheel scroll · space recentre · F flatten · Esc cancel"
           >
+            {s.showHeat && (
+              <span title="resting size at each price over the last 5 minutes (left = older, brighter = more size), then pull/stack over the last minute: − = size pulled without trading, + = size stacked. ABSORB = traded a lot while its size kept coming back.">
+                heat 5m · pull/stack
+              </span>
+            )}
             <span>buy</span>
             <span title="volume that hit the bid at this price (sellers). Lit = sellers outweigh buyers diagonally by the imbalance ratio">sold</span>
             <span className="liqhead bid" title="resting bid size as heat · WALL = 3× the average level">bid liq</span>
@@ -2039,11 +2045,6 @@ Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warmi
             <span title="volume that lifted the ask at this price (buyers). Lit = buyers outweigh sellers diagonally by the imbalance ratio">bought</span>
             <span>sell</span>
             {showPnl && <span>P&amp;L</span>}
-            {s.showHeat && (
-              <span title="resting size at each price over the last 5 minutes (left = older, brighter = more size), then pull/stack over the last minute: − = size pulled without trading, + = size stacked. ABSORB = traded a lot while its size kept coming back.">
-                heat 5m · pull/stack
-              </span>
-            )}
             <span title="volume profile since the panel opened: orange = sold at bid, cyan = bought at ask · POC outlined · value area bright">volume profile</span>
             {s.showDelta && (
               <span title="Δ = bought − sold at each price. Click to hide." className={`dhead ${m.cumDelta >= 0 ? 'up' : 'dn'}`} onClick={() => update({ showDelta: false })}>
@@ -2106,6 +2107,39 @@ Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warmi
               <div key={t} className={cls} style={gridStyle} onPointerUp={drop}>
                 {levelLines.get(t)?.map((l, i) => <i key={`hl${i}`} className={`hl ${l.cls}`} />)}
                 {levelLines.has(t) && <b className={`hltag ${levelLines.get(t)![0]!.cls}`}>{levelLines.get(t)!.map((l) => l.label).join(' · ')}</b>}
+                {/* Heat + pull/stack at the far left, next to BUY (owner, 2026-10-13). */}
+                {s.showHeat &&
+                  (() => {
+                    const hm = heatRows?.get(t) ?? [];
+                    const fl = m.liq.flow(t, g, ind.bigMin || 5);
+                    return (
+                      <span className="heat">
+                        <span className="abs">
+                          {fl.absorb && (
+                            <b
+                              className={fl.absorb}
+                              title={fl.absorb === 'bid' ? 'ABSORB bid: sellers kept hitting this bid (more than was showing) and it held: buyers absorbing' : 'ABSORB ask: buyers kept lifting this offer (more than was showing) and it held: sellers absorbing'}
+                            >
+                              ABS
+                            </b>
+                          )}
+                        </span>
+                        <span className="hstrip" title={`average resting size per 10 s, last 5 min, left = older (now ${fmtVol(Math.abs(hm.at(-1) ?? 0))})`}>
+                          {hm.map((v, i) => {
+                            const a = Math.abs(v);
+                            if (a <= 1e-9) return <i key={i} />;
+                            const wall = heatMed > 0 && a >= 3 * heatMed;
+                            const x = Math.min(1, a / heatP90);
+                            const rgb = v > 0 ? '34,211,238' : '251,146,60';
+                            return <i key={i} style={{ background: wall ? 'rgba(253,230,138,0.95)' : `rgba(${rgb},${(0.15 + 0.85 * Math.pow(x, 0.8)).toFixed(2)})` }} />;
+                          })}
+                        </span>
+                        <em className={fl.net > 0 ? 'stk' : fl.net < 0 ? 'pul' : ''} title={`last minute: pulled ${fmtVol(fl.pulled)} · stacked ${fmtVol(fl.stacked)} · traded ${fmtVol(fl.traded)}`}>
+                          {fl.signal && Math.abs(fl.net) >= 0.01 ? `${fl.net > 0 ? '+' : '−'}${fmtVol(Math.abs(fl.net))}` : ''}
+                        </em>
+                      </span>
+                    );
+                  })()}
                 <span className="orders buy" title={live ? 'LIVE: click = limit order on Vest · shift-click = panel-held STOP (fires a market order; keep this window open)' : undefined} onClick={(e) => place('buy', t, e.shiftKey)}>
                   {ordersAt(t, 'buy').map(orderChip)}
                 </span>
@@ -2148,38 +2182,6 @@ Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warmi
                   {ordersAt(t, 'sell').map(orderChip)}
                 </span>
                 {showPnl && <span className={`pnl ${pnl === undefined ? '' : pnlClass(pnl)}`}>{pnl === undefined ? '' : fmtUsd(pnl)}</span>}
-                {s.showHeat &&
-                  (() => {
-                    const hm = heatRows?.get(t) ?? [];
-                    const fl = m.liq.flow(t, g, ind.bigMin || 5);
-                    return (
-                      <span className="heat">
-                        <span className="abs">
-                          {fl.absorb && (
-                            <b
-                              className={fl.absorb}
-                              title={fl.absorb === 'bid' ? 'ABSORB bid: sellers kept hitting this bid (more than was showing) and it held: buyers absorbing' : 'ABSORB ask: buyers kept lifting this offer (more than was showing) and it held: sellers absorbing'}
-                            >
-                              ABS
-                            </b>
-                          )}
-                        </span>
-                        <span className="hstrip" title={`average resting size per 10 s, last 5 min, left = older (now ${fmtVol(Math.abs(hm.at(-1) ?? 0))})`}>
-                          {hm.map((v, i) => {
-                            const a = Math.abs(v);
-                            if (a <= 1e-9) return <i key={i} />;
-                            const wall = heatMed > 0 && a >= 3 * heatMed;
-                            const x = Math.min(1, a / heatP90);
-                            const rgb = v > 0 ? '34,211,238' : '251,146,60';
-                            return <i key={i} style={{ background: wall ? 'rgba(253,230,138,0.95)' : `rgba(${rgb},${(0.15 + 0.85 * Math.pow(x, 0.8)).toFixed(2)})` }} />;
-                          })}
-                        </span>
-                        <em className={fl.net > 0 ? 'stk' : fl.net < 0 ? 'pul' : ''} title={`last minute: pulled ${fmtVol(fl.pulled)} · stacked ${fmtVol(fl.stacked)} · traded ${fmtVol(fl.traded)}`}>
-                          {fl.signal && Math.abs(fl.net) >= 0.01 ? `${fl.net > 0 ? '+' : '−'}${fmtVol(Math.abs(fl.net))}` : ''}
-                        </em>
-                      </span>
-                    );
-                  })()}
                 <span className={`prof ${volCls}`} title={t === prof.poc ? 'POC — most traded price this session' : volCls === 'va' ? 'inside the 70% value area' : undefined}>
                   <span className="ptrack">
                     {v !== undefined && (
