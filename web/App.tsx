@@ -1539,132 +1539,143 @@ export function App() {
         </div>
       )}
 
-      <header className="bar">
-        <select
-          value={m.info?.symbol ?? ''}
-          onChange={(e) => {
-            if (m.select(e.target.value)) {
-              setCenter(null);
-              update({ symbol: e.target.value });
-            }
-          }}
-        >
-          {symbols.map((i) => (
-            <option key={i.symbol} value={i.symbol}>
-              {i.displaySymbol ?? i.symbol}
-            </option>
-          ))}
-        </select>
-        <span className="mode" title={L.tokenOk() ? 'Vest login captured' : `LIVE unavailable — ${L.loginProblem()}`}>
-          <button className={live ? '' : 'on'} onClick={() => L.goPaper()}>
-            PAPER
-          </button>
-          <button className={live ? 'on live' : ''} disabled={liveBusy || !!m.replay} title={m.replay ? 'LIVE is off during a replay' : undefined} onClick={() => void toLive()}>
-            {liveBusy ? 'LIVE…' : 'LIVE'}
-          </button>
-        </span>
-        {live && L.stops.size > 0 && (
-          <span className="stopsbadge" title="panel-held stops: they fire a MARKET entry when a trade prints at or through them, only while this window is open and LIVE">
-            ⚡ {L.stops.size} stop{L.stops.size > 1 ? 's' : ''} armed
-          </span>
-        )}
-        {s.showTrend && scalp && (
-          <span
-            className={`scalpbadge ${scalp.zone} ${scalp.side}`}
-            title={`ST1 scalp read: price ${scalp.distAtr.toFixed(1)} ATR past the ST1 line; last ${SCALP_PULLBACK_BARS} min ${scalp.pull < 0 ? 'pulling back' : 'running'} (${scalp.pull.toFixed(2)}).
-Measured on 72 h of Vest NQ, ST1-side scalps, 10/10 pts: near ST1 + pulling back won 63% (+2.5 pts before ~1.25 pts fees); 3+ ATR out won 47%. Past results, not a promise.
-Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warming' : 'TREND'} — ${mstate.why}`}
+      {/* Header, flight-panel style (owner, 2026-10-13): identity left, the reads centred, actions right with
+          KILL set apart in red; the market numbers on their own telemetry line under it. */}
+      <header className="bar fbar">
+        <div className="hz left">
+          <b className="brand">BOOKDEPTHIQ</b>
+          <select
+            value={m.info?.symbol ?? ''}
+            onChange={(e) => {
+              if (m.select(e.target.value)) {
+                setCenter(null);
+                update({ symbol: e.target.value });
+              }
+            }}
           >
-            {scalp.side === 'long' ? '▲' : '▼'}{' '}
-            {scalp.zone === 'go'
-              ? `SCALP ${scalp.side === 'long' ? 'LONG' : 'SHORT'} — pullback to ST1`
-              : scalp.zone === 'near'
-                ? `${scalp.side === 'long' ? 'LONG' : 'SHORT'} side — wait for the dip`
-                : `STRETCHED ${scalp.distAtr.toFixed(1)} ATR — don't chase`}
-            {mstate.state === 'chop' ? ' · chop' : ''}
-          </span>
-        )}
-        {limitsOn && (
-          <span className={`daychip ${verdict.ok ? '' : 'locked'}`} title={verdict.ok ? 'Protect my day (settings)' : verdict.message}>
-            day <b className={pnlClass(dayPnl)}>{fmtUsd(dayPnl)}</b>
-            {limits.lossUsd > 0 ? ` / −$${limits.lossUsd}` : ''}
-            {limits.maxTrades > 0 ? ` · ${daySt.trades}/${limits.maxTrades} trades` : ''}
-            {verdict.ok ? '' : ' · LOCKED'}
-          </span>
-        )}
-        {s.showTrend && (
-          <span
-            className={`trendbadge ${tr.t1.lineTicks === undefined ? 'warm' : tr.state} ${flipFresh ? 'flip' : ''}`}
-            title={`Dual SuperTrend (BookDepthIQ): ST1 60s×10 ×3.6, ST2 15s×10 ×3.0, flip on price + delta.${m.lastFlip ? ` Last flip: ST${m.lastFlip.line} ${m.lastFlip.dir === 'up' ? '▲' : '▼'} ${Math.round((Date.now() - m.lastFlip.at) / 1000)} s ago.` : ''}`}
-          >
-            {m.trendLoading ? 'SuperTrend loading 45 min…' : tr.t1.lineTicks === undefined ? 'SuperTrend warming up…' : `${TREND_LABEL[tr.state]} ${tr.confidence > 0 ? '+' : ''}${tr.confidence}`}
-          </span>
-        )}
-        {!live && !L.tokenOk() && (
-          <span className="neg" title="LIVE needs the Vest login from an open next.vestmarkets.com tab">
-            no Vest login — {L.loginProblem()}
-          </span>
-        )}
-        {!live && L.tokenOk() && liveWhy && <span className="neg">LIVE refused: {liveWhy}</span>}
-        {!live && L.accounts.length > 1 && (
-          <select value={L.account?.id ?? ''} onChange={(e) => L.selectAccount(e.target.value)} title="Vest account for LIVE">
-            <option value="">Vest account…</option>
-            {L.accounts.map((a) => (
-              <option key={a.id} value={a.id}>
-                {a.label}
+            {symbols.map((i) => (
+              <option key={i.symbol} value={i.symbol}>
+                {i.displaySymbol ?? i.symbol}
               </option>
             ))}
           </select>
-        )}
-        <span className={`hpill ${health}`} title="market feed: how long since the last message from Vest. Over 2 s amber, over 6 s STALE: entries off until it is back.">
-          {health === 'live' ? '●' : health === 'slow' ? '◐' : '○'} FEED {m.replay ? 'REPLAY' : feedAge === undefined ? '—' : health === 'live' ? `${feedAge} ms` : `${(feedAge / 1000).toFixed(1)} s`}
-        </span>
-        {live && (
-          <span className={`hpill ${vestHealth}`} title="Vest account link: push connected (⚡), polling, or positions not read recently. ACK = Vest's median / 95th-percentile answer time for your last orders.">
-            {vestHealth === 'live' ? `⚡ VEST${ackP ? ` ACK ${ackP.p50} ms` : ''}` : vestHealth === 'slow' ? '◐ VEST POLLING' : '○ VEST STALE'}
+          <span className="mode" title={L.tokenOk() ? 'Vest login captured' : `LIVE unavailable — ${L.loginProblem()}`}>
+            <button className={live ? '' : 'on'} onClick={() => L.goPaper()}>
+              PAPER
+            </button>
+            <button className={live ? 'on live' : ''} disabled={liveBusy || !!m.replay} title={m.replay ? 'LIVE is off during a replay' : undefined} onClick={() => void toLive()}>
+              {liveBusy ? 'LIVE…' : 'LIVE'}
+            </button>
           </span>
-        )}
-        <button className={`mini ${replayOpen || m.replay ? 'on' : ''}`} onClick={openReplay} title="replay a recorded session (PAPER only)">
-          Replay {m.replay ? '●' : '○'}
-        </button>
-        <button className={`mini ${s.showRisk ? 'on' : ''}`} onClick={() => update({ showRisk: !s.showRisk })} title="risk calculator: size, leverage and the fail line on any Vest market; 'Use in DOM' sets the ticket">
-          RISK
-        </button>
-        <button className="kill" onClick={killNow} title="KILL (Ctrl+K): close every position on every symbol at market and cancel every order. Never blocked." aria-label="Kill switch: close everything">
-          KILL ⏻
-        </button>
-        <span className={`status ${m.status}`} title={m.statusDetail}>
-          ● {m.status}
-        </span>
-        <span className="kv">
-          last <b>{px(m.lastTradeTicks)}</b>
-        </span>
-        <span className="kv">
-          mark <b>{m.ticker ? Number(m.ticker.markPrice).toFixed(dec) : '—'}</b>
-        </span>
-        <span className="kv">
-          index <b>{m.ticker ? Number(m.ticker.indexPrice).toFixed(dec) : '—'}</b>
-        </span>
-        <span className="kv">
-          basis <b>{basis === undefined ? '—' : `${basis.toFixed(1)} bps`}</b>
-        </span>
-        <span
-          className={`kv ${prem5 !== undefined && premBand !== undefined && Math.abs(prem5 * 1e4) >= 0.8 * premBand ? 'wide' : ''}`}
-          title={`premium over the last 5 min, Vest's way: impact prices for a $${m.info?.initMarginRatio ? Math.round(100 / Number(m.info.initMarginRatio)).toLocaleString() : '—'} order vs the index. Positive = Vest rich (longs crowded).${premBand ? ` Trades are blocked beyond ±${premBand} bps; near the band, price tends to snap back.` : ''}`}
-        >
-          prem 5m <b>{prem5 === undefined ? '—' : `${(prem5 * 1e4).toFixed(1)} bps`}</b>
-        </span>
-        <span className={`kv ${wide ? 'wide' : ''}`} title={p90 === undefined ? 'collecting spread history…' : `this market's p90 spread over the last 5 min: ${(p90 * tick).toFixed(dec)} pts`}>
-          spread <b>{spread === undefined ? '—' : (spread * tick).toFixed(dec)}</b>
-          {wide ? ' WIDE' : ''}
-        </span>
-        <span
-          className={`badge ${m.ladder > 0.8 ? 'warn' : ''}`}
-          title="Share of resting sizes that are whole multiples of one unit. Near 1 = one market maker's quote ladder, not organic order flow."
-        >
-          {m.ladder > 0.8 ? 'QUOTED BOOK' : 'book'} {(m.ladder * 100).toFixed(0)}%
-        </span>
+          {!live && !L.tokenOk() && (
+            <span className="neg" title="LIVE needs the Vest login from an open next.vestmarkets.com tab">
+              no Vest login — {L.loginProblem()}
+            </span>
+          )}
+          {!live && L.tokenOk() && liveWhy && <span className="neg">LIVE refused: {liveWhy}</span>}
+          {!live && L.accounts.length > 1 && (
+            <select value={L.account?.id ?? ''} onChange={(e) => L.selectAccount(e.target.value)} title="Vest account for LIVE">
+              <option value="">Vest account…</option>
+              {L.accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}
+                </option>
+              ))}
+            </select>
+          )}
+          <span className={`hpill ${health}`} title="market feed: how long since the last message from Vest. Over 2 s amber, over 6 s STALE: entries off until it is back.">
+            {health === 'live' ? '●' : health === 'slow' ? '◐' : '○'} FEED {m.replay ? 'REPLAY' : feedAge === undefined ? '—' : health === 'live' ? `${feedAge} ms` : `${(feedAge / 1000).toFixed(1)} s`}
+          </span>
+          {live && (
+            <span className={`hpill ${vestHealth}`} title="Vest account link: push connected (⚡), polling, or positions not read recently. ACK = Vest's median / 95th-percentile answer time for your last orders.">
+              {vestHealth === 'live' ? `⚡ VEST${ackP ? ` ACK ${ackP.p50} ms` : ''}` : vestHealth === 'slow' ? '◐ VEST POLLING' : '○ VEST STALE'}
+            </span>
+          )}
+        </div>
+        <div className="hz mid">
+          {s.showTrend && scalp && (
+            <span
+              className={`scalpbadge ${scalp.zone} ${scalp.side}`}
+              title={`ST1 scalp read: price ${scalp.distAtr.toFixed(1)} ATR past the ST1 line; last ${SCALP_PULLBACK_BARS} min ${scalp.pull < 0 ? 'pulling back' : 'running'} (${scalp.pull.toFixed(2)}).
+  Measured on 72 h of Vest NQ, ST1-side scalps, 10/10 pts: near ST1 + pulling back won 63% (+2.5 pts before ~1.25 pts fees); 3+ ATR out won 47%. Past results, not a promise.
+  Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warming' : 'TREND'} — ${mstate.why}`}
+            >
+              {scalp.side === 'long' ? '▲' : '▼'}{' '}
+              {scalp.zone === 'go'
+                ? `SCALP ${scalp.side === 'long' ? 'LONG' : 'SHORT'} — pullback to ST1`
+                : scalp.zone === 'near'
+                  ? `${scalp.side === 'long' ? 'LONG' : 'SHORT'} side — wait for the dip`
+                  : `STRETCHED ${scalp.distAtr.toFixed(1)} ATR — don't chase`}
+              {mstate.state === 'chop' ? ' · chop' : ''}
+            </span>
+          )}
+          {s.showTrend && (
+            <span
+              className={`trendbadge ${tr.t1.lineTicks === undefined ? 'warm' : tr.state} ${flipFresh ? 'flip' : ''}`}
+              title={`Dual SuperTrend (BookDepthIQ): ST1 60s×10 ×3.6, ST2 15s×10 ×3.0, flip on price + delta.${m.lastFlip ? ` Last flip: ST${m.lastFlip.line} ${m.lastFlip.dir === 'up' ? '▲' : '▼'} ${Math.round((Date.now() - m.lastFlip.at) / 1000)} s ago.` : ''}`}
+            >
+              {m.trendLoading ? 'SuperTrend loading 45 min…' : tr.t1.lineTicks === undefined ? 'SuperTrend warming up…' : `${TREND_LABEL[tr.state]} ${tr.confidence > 0 ? '+' : ''}${tr.confidence}`}
+            </span>
+          )}
+          {limitsOn && (
+            <span className={`daychip ${verdict.ok ? '' : 'locked'}`} title={verdict.ok ? 'Protect my day (settings)' : verdict.message}>
+              day <b className={pnlClass(dayPnl)}>{fmtUsd(dayPnl)}</b>
+              {limits.lossUsd > 0 ? ` / −$${limits.lossUsd}` : ''}
+              {limits.maxTrades > 0 ? ` · ${daySt.trades}/${limits.maxTrades} trades` : ''}
+              {verdict.ok ? '' : ' · LOCKED'}
+            </span>
+          )}
+          {live && L.stops.size > 0 && (
+            <span className="stopsbadge" title="panel-held stops: they fire a MARKET entry when a trade prints at or through them, only while this window is open and LIVE">
+              ⚡ {L.stops.size} stop{L.stops.size > 1 ? 's' : ''} armed
+            </span>
+          )}
+        </div>
+        <div className="hz right">
+          <button className={`mini ${replayOpen || m.replay ? 'on' : ''}`} onClick={openReplay} title="replay a recorded session (PAPER only)">
+            Replay {m.replay ? '●' : '○'}
+          </button>
+          <button className={`mini ${s.showRisk ? 'on' : ''}`} onClick={() => update({ showRisk: !s.showRisk })} title="risk calculator: size, leverage and the fail line on any Vest market; 'Use in DOM' sets the ticket">
+            RISK
+          </button>
+          <button className="kill" onClick={killNow} title="KILL (Ctrl+K): close every position on every symbol at market and cancel every order. Never blocked." aria-label="Kill switch: close everything">
+            KILL ⏻
+          </button>
+        </div>
       </header>
+      <div className="mktline">
+          <span className={`status ${m.status}`} title={m.statusDetail}>
+            ● {m.status}
+          </span>
+          <span className="kv">
+            last <b>{px(m.lastTradeTicks)}</b>
+          </span>
+          <span className="kv">
+            mark <b>{m.ticker ? Number(m.ticker.markPrice).toFixed(dec) : '—'}</b>
+          </span>
+          <span className="kv">
+            index <b>{m.ticker ? Number(m.ticker.indexPrice).toFixed(dec) : '—'}</b>
+          </span>
+          <span className="kv">
+            basis <b>{basis === undefined ? '—' : `${basis.toFixed(1)} bps`}</b>
+          </span>
+          <span
+            className={`kv ${prem5 !== undefined && premBand !== undefined && Math.abs(prem5 * 1e4) >= 0.8 * premBand ? 'wide' : ''}`}
+            title={`premium over the last 5 min, Vest's way: impact prices for a $${m.info?.initMarginRatio ? Math.round(100 / Number(m.info.initMarginRatio)).toLocaleString() : '—'} order vs the index. Positive = Vest rich (longs crowded).${premBand ? ` Trades are blocked beyond ±${premBand} bps; near the band, price tends to snap back.` : ''}`}
+          >
+            prem 5m <b>{prem5 === undefined ? '—' : `${(prem5 * 1e4).toFixed(1)} bps`}</b>
+          </span>
+          <span className={`kv ${wide ? 'wide' : ''}`} title={p90 === undefined ? 'collecting spread history…' : `this market's p90 spread over the last 5 min: ${(p90 * tick).toFixed(dec)} pts`}>
+            spread <b>{spread === undefined ? '—' : (spread * tick).toFixed(dec)}</b>
+            {wide ? ' WIDE' : ''}
+          </span>
+          <span
+            className={`badge ${m.ladder > 0.8 ? 'warn' : ''}`}
+            title="Share of resting sizes that are whole multiples of one unit. Near 1 = one market maker's quote ladder, not organic order flow."
+          >
+            {m.ladder > 0.8 ? 'QUOTED BOOK' : 'book'} {(m.ladder * 100).toFixed(0)}%
+          </span>
+      </div>
       {(replayOpen || m.replay) && (
         <div className="replaybar">
           <b className="rtag">REPLAY</b>

@@ -702,3 +702,35 @@ b { font-weight: 600; }
 .tile b.pos { color: var(--pos); } .tile b.neg { color: var(--neg); } .tile b.warn { color: var(--warn); } .tile b.ask { color: var(--ask); }
 .card .pretrade, .card .coststrip, .card .checks { font-size: 11px; display: flex; flex-wrap: wrap; gap: 4px 10px; padding: 0; border: 0; background: transparent; }
 .card .lockbar, .card .noticebar { font-size: 11.5px; border-radius: 4px; }
+
+/* Header + telemetry, flight-panel style (owner, 2026-10-13). */
+.fbar { display: grid; grid-template-columns: minmax(0, max-content) minmax(0, 1fr) max-content; gap: 10px; align-items: center; padding: 6px 10px; flex-wrap: nowrap;
+  font-family: 'Segoe UI Variable Text', 'Segoe UI', Inter, system-ui, sans-serif; }
+.fbar .hz { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.fbar .hz.left { overflow: hidden; }
+.fbar .hz.mid { justify-content: center; overflow: hidden; flex-wrap: nowrap; }
+.fbar .hz.right { justify-content: flex-end; }
+.fbar .brand { font-size: 12px; font-weight: 700; letter-spacing: 0.18em; color: #38bdf8; margin-right: 6px; white-space: nowrap; }
+.fbar select { height: 30px; padding: 0 8px; border-radius: 4px; background: #0a0e15; border: 1px solid #1c2433; font: 13px 'Segoe UI', Inter, sans-serif; color: var(--text); }
+.fbar .mode { display: inline-flex; gap: 2px; padding: 2px; background: #0a0e15; border: 1px solid #1c2433; border-radius: 5px; }
+.fbar .mode button { height: 26px; padding: 0 12px; border: 0; border-radius: 4px; background: transparent; color: var(--muted); font: 600 11.5px 'Segoe UI', Inter, sans-serif; letter-spacing: 0.05em; cursor: pointer; }
+.fbar .mode button.on { background: #16324a; color: #38bdf8; }
+.fbar .mode button.on.live { background: #3a1010; color: #ff8a8a; }
+.fbar .hpill { height: 26px; display: inline-flex; align-items: center; padding: 0 10px; border-radius: 13px; background: #0a0e15; font: 600 11px 'Segoe UI', Inter, sans-serif; white-space: nowrap; }
+.fbar .scalpbadge, .fbar .trendbadge, .fbar .daychip, .fbar .stopsbadge { height: 30px; display: inline-flex; align-items: center; padding: 0 12px; border-radius: 15px;
+  font: 600 12.5px 'Segoe UI', Inter, sans-serif; white-space: nowrap; background: #0a0e15; }
+.fbar .hz.right .mini { height: 30px; padding: 0 14px; border-radius: 5px; border: 1px solid #1c2433; background: #0a0e15; font: 600 12px 'Segoe UI', Inter, sans-serif; color: var(--text); }
+.fbar .hz.right .mini.on { border-color: #38bdf8; color: #38bdf8; }
+.fbar .kill { height: 30px; padding: 0 16px; margin-left: 10px; border-radius: 5px; background: #5a1414; border: 1px solid var(--neg); color: #ffd6d6; font: 700 12px 'Segoe UI', Inter, sans-serif; letter-spacing: 0.05em; }
+.fbar .neg { font-size: 11.5px; max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex-shrink: 1; min-width: 40px; }
+.mktline { display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px 18px; padding: 4px 12px; border-bottom: 1px solid var(--line); background: var(--bg);
+  font: 11px 'Segoe UI', Inter, sans-serif; color: var(--muted); }
+.mktline .kv { color: var(--muted); letter-spacing: 0.04em; }
+.mktline .kv b { font: 600 13px ui-monospace, 'Cascadia Mono', Consolas, monospace; color: var(--text); margin-left: 4px; }
+.mktline .status { font-weight: 600; }
+/* Account + position strips as telemetry: small-caps labels over big mono numbers. */
+.position { gap: 4px 22px !important; padding: 6px 12px !important; background: var(--bg); }
+.position label { font: 600 9.5px 'Segoe UI', Inter, sans-serif !important; letter-spacing: 0.1em; color: var(--muted); }
+.position b { font: 600 15px ui-monospace, 'Cascadia Mono', Consolas, monospace !important; }
+.account { font-family: 'Segoe UI', Inter, sans-serif; font-size: 11.5px; }
+.account b { font-family: ui-monospace, 'Cascadia Mono', Consolas, monospace; font-size: 13px; }
