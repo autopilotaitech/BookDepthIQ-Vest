@@ -98,6 +98,12 @@ describe('fat-finger checks and health', () => {
     expect(tradeChecks({ ...base, gate: 'wide' }).some((c) => c.level === 'warn')).toBe(true);
     expect(tradeChecks({ ...base, slTicks: 2 }).some((c) => c.level === 'bad')).toBe(true);
   });
+  it('a stop past the fail line is bad; over your own leverage limit warns', () => {
+    expect(tradeChecks({ ...base, failTicks: 40 }).find((c) => c.level === 'bad')?.text).toMatch(/past the fail line/);
+    expect(needsConfirm(tradeChecks({ ...base, failTicks: 41 }))).toBe(false);
+    expect(tradeChecks({ ...base, levAfter: 12, maxLev: 10 }).find((c) => c.level === 'warn')?.text).toMatch(/over your 10x limit/);
+    expect(needsConfirm(tradeChecks({ ...base, levAfter: 12, maxLev: 0 }))).toBe(false);
+  });
   it('feed health', () => {
     expect(feedHealth(500, true)).toBe('live');
     expect(feedHealth(3000, true)).toBe('slow');

@@ -25,6 +25,11 @@ export interface CheckInput {
   slTicks: number;
   bracketsOn: boolean;
   tick: number;
+  /** Ticks against the entry before the account fails at this size (undefined: unknown). */
+  failTicks?: number;
+  /** Leverage after this entry, and the user's own leverage limit from the Risk page (0 = off). */
+  levAfter?: number;
+  maxLev?: number;
 }
 
 export function tradeChecks(i: CheckInput): TradeCheck[] {
@@ -38,6 +43,9 @@ export function tradeChecks(i: CheckInput): TradeCheck[] {
   else if (i.gate) out.push({ level: 'ok', text: `spread ${i.spreadTicks !== undefined ? pts(i.spreadTicks) : '?'} ${i.gate}` });
   if (i.distTicks !== undefined && i.farTicks > 0 && Math.abs(i.distTicks) >= i.farTicks) out.push({ level: 'warn', text: `${pts(Math.abs(i.distTicks))} pts from the market — is the price right?` });
   if (i.bracketsOn && i.slTicks > 0 && i.spreadTicks !== undefined && i.slTicks <= i.spreadTicks) out.push({ level: 'bad', text: `stop ${pts(i.slTicks)} pts — inside the spread, fills at once` });
+  if (i.bracketsOn && i.slTicks > 0 && i.failTicks !== undefined && i.slTicks >= i.failTicks)
+    out.push({ level: 'bad', text: `stop ${pts(i.slTicks)} pts is past the fail line (${pts(i.failTicks)} pts) — the account fails first` });
+  if (i.maxLev && i.levAfter !== undefined && i.levAfter > i.maxLev + 1e-9) out.push({ level: 'warn', text: `${i.levAfter.toFixed(1)}x — over your ${i.maxLev}x limit` });
   return out;
 }
 

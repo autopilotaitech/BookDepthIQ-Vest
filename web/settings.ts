@@ -3,11 +3,12 @@ import type { SkewDir } from '../src/live/targets';
 // Per-viewer UI settings in localStorage. Every read/write is guarded: storage can be missing or
 // throw (private window, blocked site data) and the panel must still work on defaults.
 
-export type SizeMode = 'units' | 'usd' | 'risk';
+export type SizeMode = 'units' | 'usd' | 'risk' | 'room';
 
 export interface Settings {
   symbol: string;
-  /** How the size box is read: Vest units, USD notional (Vest's own ticket), or $ risked at the SL. */
+  /** How the size box is read: Vest units, USD notional (Vest's own ticket), $ risked at the SL, or
+   * % of the room to the fail floor risked at the SL (set from the Risk page). */
   sizeMode: SizeMode;
   sizeInput: number;
   bracketsOn: boolean;
@@ -94,6 +95,11 @@ export interface Settings {
   /** Widen the rows so the whole bracket is on screen. OFF by default: coarse rows move where a
    * click places an order (v1.6.1 had it always on and stop clicks landed through the market). */
   fitBracket: boolean;
+  /** Risk page: open, its market filter, and your own leverage limit (0 = off; over it the ticket
+   * asks for a second click, nothing is blocked). */
+  showRisk: boolean;
+  riskGroup: 'fut' | 'crypto' | 'all';
+  maxLevUser: number;
 }
 
 const KEY = 'bdiqvest.settings.v3';
@@ -154,6 +160,9 @@ export const DEFAULTS: Settings = {
   cooldownSec: 0,
   weekendClose: false,
   fitBracket: false,
+  showRisk: false,
+  riskGroup: 'fut',
+  maxLevUser: 0,
 };
 
 /** The old 0.01 default was a first-release cap the owner turned off (2026-10-08). */

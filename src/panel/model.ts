@@ -30,6 +30,7 @@ import type { FetchLike } from '../vest/trading.js';
 export const CME_MULTIPLIER: Record<string, { full: number; micro?: number; name: string }> = {
   NQ: { full: 20, micro: 2, name: 'NQ' },
   ES: { full: 50, micro: 5, name: 'ES' },
+  YM: { full: 5, micro: 0.5, name: 'YM' },
   RTY: { full: 50, micro: 5, name: 'RTY' },
   CL: { full: 1000, micro: 100, name: 'CL' },
   GC: { full: 100, micro: 10, name: 'GC' },

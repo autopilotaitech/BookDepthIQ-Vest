@@ -249,6 +249,27 @@ log*; click again for the tape): every round trip on the market on screen, with 
 tag, size, entry, stop, $ result and R, totals and results per setup, and **copy CSV**. PAPER
 results are exact (fees in); LIVE ones are the last marked P&L (≈). Kept in this browser.
 
+**Risk calculator (v1.9)**: the **RISK** button in the header opens it over the panel. It reads
+your account (LIVE: balance, fail floor and per-market leverage from Vest; PAPER: the paper
+account) and Vest's live prices. It never sends an order.
+- Pick any market (filters: **Futures** NQ ES YM RTY GC SI HG PL CL BZ NG, **Crypto**, **All**),
+  Long/Short, and size by **stop + $ risk** (a % of the room left to the fail floor) or by
+  **leverage**. Each market's cap is Vest's `1 / initMarginRatio`, capped by your account.
+- Shows size (with the CME contract equivalent), leverage used vs cap, $ lost at the stop and won
+  at the target after fees, R:R, a **risk map** (target, entry, stop and the price where the
+  account fails), **what a move is worth** ($ per point, per 10 points, per 0.1% / 1%, fees), how
+  many losers like it the room holds, and a **leverage chart**: points left before the account
+  fails at each leverage, with the leverage above which your stop is past the fail line.
+- **Every market** table: same account and $ risk, stop at the same % of price — cap, how far a
+  max-size position can move before the account fails, size, leverage, $ per point and per 1%.
+  Click a row to load it.
+- **Another package** plans with a different balance, room and max leverage.
+- **Use in DOM** writes the plan into the ticket: size mode **% room @SL** (the $ risk follows your
+  room as it changes), SL and TP points, and opens that market if it isn't on screen.
+- **My max lev**: over it, the ticket asks for a second click (nothing is blocked). The ticket also
+  shows **% of room · losers left**, and an entry whose stop is past the fail line needs a second
+  click. With **PREVIEW** on, the FAIL line is on the ladder before you enter.
+
 **Pro tools (v1.8)**
 - **Header pills:** **FEED** (green under 2 s since Vest's last message, amber, then red STALE:
   the ladder greys out and new entries are off; exits keep working) and, in LIVE, **VEST** (⚡ push
@@ -289,6 +310,7 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
 
 | Version | What changed |
 |---|---|
+| 1.9.0 | **RISK** calculator inside the panel (any market, live prices and leverage caps, risk map, leverage chart, every-market table, Use in DOM), **% room @SL** sizing, your own max leverage, fail-line check and preview FAIL line. |
 | 1.8.4 | Heatmap logic: 10 s cells are time-averaged (steady instead of random), coloured by the side the price was on then, brightness against the 90th percentile, yellow = wall (3× typical). |
 | 1.8.0 | KILL, FEED/VEST health pills, LIVE order status + blotter, fat-finger checks (second click), day-lock bar, heat/pull/stack column, record + replay, execution columns in the journal. |
 | 1.7.1 | Swing stop **≥ min** floor; SuperTrend loads 45 min of history on open; RANGE H/L pinned when off-screen. |

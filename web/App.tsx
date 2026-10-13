@@ -21,6 +21,8 @@ import { watchHookStatus, watchUserToken, watchVestTabs } from './liveToken';
 import { liveOpenPnl } from '../src/live/rules';
 import { parseSplit, scaleOrders, splitTargets, type SkewDir, type Target } from '../src/live/targets';
 import type { BracketCtx } from '../src/live/session';
+import { marketLevCap } from '../src/panel/riskcalc';
+import { RiskView } from './RiskView';
 
 const ROW_PX = 22;
 
@@ -563,18 +565,6 @@ export function App() {
   const sizeDec = m.info?.sizeDecimals ?? 4;
   const refPx = mid !== undefined ? mid * tick : undefined;
   const feeRate = Number(m.info?.takerFee ?? 0) || 0;
-  const units =
-    s.sizeMode === 'units'
-      ? s.sizeInput
-      : s.sizeMode === 'usd'
-        ? refPx
-          ? unitsForNotional(s.sizeInput, refPx, sizeDec)
-          : 0
-        : refPx
-          ? unitsForRiskWithFees(s.sizeInput, slEff, tick, refPx, feeRate, sizeDec)
-          : 0;
-  /** Size for a long or short entered at `ref`: in $ risk sizing it follows that side's stop. */
-  const unitsFor = (long: boolean, ref?: number) => (s.sizeMode !== 'risk' ? units : refPx ? unitsForRiskWithFees(s.sizeInput, slFor(long, ref), tick, refPx, feeRate, sizeDec) : 0);
   const lpos = live && m.info ? L.positionFor(m.info.symbol) : undefined;
   const liveOpen = lpos ? liveOpenPnl(lpos, tick, bid, ask) : 0;
   const equity = live ? (L.balance ?? 0) + liveOpen : m.equity();
@@ -583,6 +573,21 @@ export function App() {
   const ddUsed = Math.max(0, s.startEquity - equity);
   const ddLeft = equity - floor;
   const maxU = refPx ? maxUnits(equity, lev, refPx) : 0;
+  /** $ risk sizing: a fixed $ amount, or (from the Risk page) a % of the room to the fail floor. */
+  const riskSizing = s.sizeMode === 'risk' || s.sizeMode === 'room';
+  const riskAmt = s.sizeMode === 'room' ? (Math.max(0, ddLeft) * s.sizeInput) / 100 : s.sizeInput;
+  const units =
+    s.sizeMode === 'units'
+      ? s.sizeInput
+      : s.sizeMode === 'usd'
+        ? refPx
+          ? unitsForNotional(s.sizeInput, refPx, sizeDec)
+          : 0
+        : refPx
+          ? unitsForRiskWithFees(riskAmt, slEff, tick, refPx, feeRate, sizeDec)
+          : 0;
+  /** Size for a long or short entered at `ref`: in $ risk sizing it follows that side's stop. */
+  const unitsFor = (long: boolean, ref?: number) => (!riskSizing ? units : refPx ? unitsForRiskWithFees(riskAmt, slFor(long, ref), tick, refPx, feeRate, sizeDec) : 0);
   const openNotional = live ? Math.abs(lpos?.qty ?? 0) * (refPx ?? 0) : m.notionalUsd();
   const levUsed = leverageUsed(openNotional, equity);
   const margin = marginUsed(openNotional, lev);
@@ -746,6 +751,9 @@ export function App() {
       slTicks: slEff,
       bracketsOn: s.bracketsOn,
       tick,
+      failTicks: u > 0 && ddLeft > 0 ? Math.floor(ddLeft / u / tick) : undefined,
+      levAfter: refPx ? leverageUsed(openNotional + u * refPx, equity) : undefined,
+      maxLev: s.maxLevUser,
     });
   const confirmRef = useRef<{ key: string; until: number } | null>(null);
   /** True (and asks for the second click) when this order's checks have a warning. */
@@ -1036,7 +1044,10 @@ export function App() {
       : undefined;
   // P&L per row only while in a position (no hover "what if" preview: it shifted the ladder).
   const pnlAt = (t: number): number | undefined => (pos.qty !== 0 ? rowPnlUsd(pos.qty, pos.avgTicks, t, tick) : undefined);
-  const failRow = failTicksPos;
+  // Flat with PREVIEW on: where the account would fail at this size, so the stop can be checked
+  // against it before entry.
+  const failRow =
+    failTicksPos ?? (pvRef !== undefined && pos.qty === 0 && units > 0 && ddLeft > 0 ? pvRef - (pvLong ? 1 : -1) * Math.floor(ddLeft / units / tick) : undefined);
   // v0.8 ladder columns: buy · sold · bid liq · price · ask liq · bought · sell · [P&L] · profile · [Δ]
   const showPnl = pos.qty !== 0;
   const cols = ['0.5fr', '0.62fr', '0.9fr', '1fr', '0.9fr', '0.62fr', '0.5fr', ...(showPnl ? ['0.7fr'] : []), ...(s.showHeat ? ['1fr'] : []), '1.35fr', ...(s.showDelta ? ['0.7fr'] : [])].join(' ');
@@ -1250,6 +1261,27 @@ export function App() {
 
   return (
     <div className={`app ${drag ? 'dragging' : ''}`} onPointerUp={() => setTimeout(() => setDrag(null), 0)}>
+      {s.showRisk && (
+        <RiskView
+          s={s}
+          update={update}
+          infos={symbols}
+          cur={m.info ?? undefined}
+          curPx={refPx}
+          curStopPts={s.bracketsOn ? slEff * tick : 0}
+          curTpPts={s.bracketsOn ? (tpEff[0] ?? 0) * tick : 0}
+          equity={equity}
+          room={Math.max(0, ddLeft)}
+          levFor={(i) => (live ? L.leverageFor(i) : marketLevCap(i.initMarginRatio, s.leverage))}
+          live={live}
+          select={(sym) => {
+            const ok = m.select(sym);
+            if (ok) setCenter(null);
+            return ok;
+          }}
+          onClose={() => update({ showRisk: false })}
+        />
+      )}
       {live ? (
         <>
           <div className="live-banner">LIVE — {L.account?.label} — real orders</div>
@@ -1344,6 +1376,9 @@ export function App() {
         )}
         <button className={`mini ${replayOpen || m.replay ? 'on' : ''}`} onClick={openReplay} title="replay a recorded session (PAPER only)">
           Replay {m.replay ? '●' : '○'}
+        </button>
+        <button className={`mini ${s.showRisk ? 'on' : ''}`} onClick={() => update({ showRisk: !s.showRisk })} title="risk calculator: size, leverage and the fail line on any Vest market; 'Use in DOM' sets the ticket">
+          RISK
         </button>
         <button className="kill" onClick={killNow} title="KILL (Ctrl+K): close every position on every symbol at market and cancel every order. Never blocked." aria-label="Kill switch: close everything">
           KILL ⏻
@@ -2112,6 +2147,7 @@ export function App() {
               <option value="units">units</option>
               <option value="usd">USD</option>
               <option value="risk">$ risk @SL</option>
+              <option value="room" title="risk this % of the room left to the fail floor (set on the Risk page)">% room @SL</option>
             </select>
             <input
               type="number"
@@ -2344,7 +2380,7 @@ export function App() {
           <span>
             = <b>{units.toFixed(sizeDec)}u</b> <small>{eq(units)}</small>
           </span>
-          {swingMode && s.sizeMode === 'risk' && (
+          {swingMode && riskSizing && (
             <span title="swing stops differ by side, so the size does too">
               L <b>{unitsFor(true).toFixed(sizeDec)}u</b> / S <b>{unitsFor(false).toFixed(sizeDec)}u</b>
             </span>
@@ -2359,6 +2395,11 @@ export function App() {
           <span className={nextRisk !== undefined && nextRisk > ddLeft ? 'neg' : ''} title="loss at the stop, taker fee both ways included">
             {nextRisk !== undefined ? `risk $${nextRisk.toFixed(2)} at SL` : 'no SL'}
           </span>
+          {nextRisk !== undefined && nextRisk > 0 && ddLeft > 0 && (
+            <span className={nextRisk / ddLeft > 0.5 ? 'neg' : ''} title="share of the room to the fail floor this stop-out uses, and how many losers like it the room holds">
+              {((nextRisk / ddLeft) * 100).toFixed(0)}% of room · {Math.floor(ddLeft / nextRisk + 1e-9)} losers left
+            </span>
+          )}
           {limitsOn && verdict.roomUsd !== undefined && nextRisk !== undefined && nextRisk > verdict.roomUsd && verdict.roomUsd > 0 && (
             <span className="neg">
               only ${verdict.roomUsd.toFixed(2)} left today{' '}
@@ -2379,7 +2420,7 @@ export function App() {
             </span>
           )}
           {atrMode && s.bracketsOn && !slEff && <span className="neg">ATR still warming up — entries go WITHOUT a stop</span>}
-          {s.sizeMode === 'risk' && !slEff && !atrMode && <span className="neg">set SL points to size by risk</span>}
+          {riskSizing && !slEff && !atrMode && <span className="neg">set SL points to size by risk</span>}
           {s.bracketsOn && multiTp && units > 0 && (() => {
             const sp = splitTargets(units, sizeDec, targets);
             return sp.ok ? (

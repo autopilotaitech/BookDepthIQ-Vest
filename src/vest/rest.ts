@@ -27,6 +27,13 @@ export async function fetchTicker(symbol: string): Promise<TickerData | undefine
   return r.tickers[0];
 }
 
+/** GET /v3/ticker/latest for several markets at once (mark and index per market). */
+export async function fetchTickers(symbols: string[]): Promise<TickerData[]> {
+  if (!symbols.length) return [];
+  const r = await getJson<{ tickers: TickerData[] }>(`/v3/ticker/latest?symbols=${symbols.map(encodeURIComponent).join(',')}`);
+  return r.tickers ?? [];
+}
+
 /** Up to `limit` (≤ 1000) public trades at or before `endTime`, newest first. */
 export function fetchTradesBefore(symbol: string, endTime: number, limit = 1000): Promise<TradeData[]> {
   return getJson<TradeData[]>(`/v3/trades?symbol=${encodeURIComponent(symbol)}&endTime=${Math.floor(endTime)}&limit=${limit}`);
