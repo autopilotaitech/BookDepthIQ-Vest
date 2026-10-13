@@ -76,6 +76,20 @@ export function RiskView(p: RiskViewProps) {
     setPlan({ ...plan, bal, room: plan.pkg && Number.isFinite(b) ? String(instantRoom(plan.pkg, b, plan.daily)) : plan.room });
   };
   const [used, setUsed] = useState('');
+  /** Back to the defaults: market on screen, Long, $ risk 25% of room, 5x, prices/stop/target from
+   * the market, your own account. Nothing in the DOM changes. */
+  const reset = () => {
+    setSym(cur?.symbol ?? '');
+    setLong(true);
+    setMode('risk');
+    setRiskPct(25);
+    setLev(5);
+    setEntryIn('');
+    setStopIn('');
+    setTpIn('');
+    setPlan(null);
+    setUsed('');
+  };
 
   const shown = infos.filter((i) => inGroup(displayRoot(i), s.riskGroup) || i.symbol === info?.symbol);
   const shownKey = shown.map((i) => i.symbol).join(',');
@@ -207,6 +221,9 @@ export function RiskView(p: RiskViewProps) {
         <div className="rv-headbtns">
           <button className="rv-use" onClick={useInDom} disabled={!r.units || !stopPts} title="writes this size rule, stop and target into the DOM ticket (stop mode: points). Nothing is sent.">
             Use in DOM{onScreen ? '' : ` (open ${root})`}
+          </button>
+          <button className="mini" onClick={reset} title="back to the defaults: market on screen, Long, risk 25% of room, 5x, live price, your own account. The DOM ticket is not touched.">
+            reset
           </button>
           <button className="mini" onClick={p.onClose} aria-label="Close the risk calculator">
             ✕
