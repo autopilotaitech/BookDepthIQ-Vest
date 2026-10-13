@@ -777,3 +777,72 @@ b { font-weight: 600; }
 .lrow .hl.npoc { border-top: 1.5px dashed var(--npoc); }
 .lrow .hltag.npoc { color: color-mix(in srgb, var(--npoc) 55%, #fff); border: 1px solid color-mix(in srgb, var(--npoc) 60%, #000); }
 .pins .pin.npoc { color: color-mix(in srgb, var(--npoc) 55%, #fff); }
+
+/* Settings, flight-panel style (owner, 2026-10-13, as in the NT DOM): section rail, cards of rows, switches. */
+.sv { position: fixed; inset: 0; z-index: 70; display: flex; background: var(--bg); color: var(--text); font-family: 'Segoe UI Variable Text', 'Segoe UI', Inter, system-ui, sans-serif; }
+.sv-rail { flex: 0 0 190px; display: flex; flex-direction: column; gap: 2px; padding: 16px 10px; background: var(--panel); border-right: 1px solid var(--edge); overflow: auto; }
+.sv-rail b { font-size: 11px; letter-spacing: 0.2em; color: var(--accent); margin: 0 0 14px 12px; }
+.sv-rail button { height: 34px; text-align: left; padding: 0 12px; border: 0; border-left: 3px solid transparent; border-radius: 5px; background: transparent; color: var(--muted);
+  font: 600 11.5px 'Segoe UI', Inter, sans-serif; letter-spacing: 0.06em; cursor: pointer; }
+.sv-rail button:hover { color: var(--text); }
+.sv-rail button.on { background: var(--seg-on); color: var(--accent); border-left-color: var(--accent); }
+.sv-main { flex: 1; min-width: 0; display: flex; flex-direction: column; }
+.sv-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 16px; padding: 16px 22px 8px; }
+.sv-head h2 { margin: 0; font-size: 20px; font-weight: 600; }
+.sv-head p { margin: 3px 0 0; font-size: 12px; color: var(--muted); max-width: 640px; }
+.sv-done { height: 32px; padding: 0 22px; border-radius: 5px; border: 1px solid var(--accent); background: var(--accent); color: var(--bg); font: 700 12px 'Segoe UI', Inter, sans-serif; letter-spacing: 0.06em; cursor: pointer; }
+.sv-body { flex: 1; overflow: auto; padding: 0 16px 20px; }
+.sv-card { max-width: 680px; margin: 6px 6px 10px; padding: 8px 12px 4px; background: var(--card); border: 1px solid var(--edge); border-radius: 6px; }
+.sv-ct { font-size: 10px; font-weight: 600; letter-spacing: 0.12em; color: var(--muted); margin-bottom: 2px; }
+.sv-row { display: flex; align-items: center; justify-content: space-between; gap: 16px; min-height: 44px; padding: 4px 2px; border-top: 1px solid var(--edge); }
+.sv-ct + .sv-row { border-top: 0; }
+.sv-l { display: flex; flex-direction: column; gap: 1px; min-width: 0; }
+.sv-l span { font-size: 13px; }
+.sv-l small { font-size: 11px; color: var(--muted); }
+.sv-c { flex: none; display: flex; align-items: center; }
+.sv-sw { width: 64px; height: 30px; border-radius: 15px; border: 1px solid var(--edge); background: var(--field); color: var(--muted); font: 600 12px 'Segoe UI', Inter, sans-serif; letter-spacing: 0.05em; cursor: pointer; }
+.sv-sw.on { background: var(--seg-on); border-color: var(--accent); color: var(--accent); }
+.sv-sw:disabled { opacity: 0.4; cursor: default; }
+.sv-seg { min-width: 220px; }
+.sv-in { height: 30px; padding: 0 8px; border-radius: 4px; border: 1px solid var(--edge); background: var(--field); color: var(--text); font: 13px 'Segoe UI', Inter, sans-serif; }
+.sv-in.num { width: 110px; text-align: right; font: 14px ui-monospace, 'Cascadia Mono', Consolas, monospace; }
+.sv-in:focus { outline: none; border-color: var(--accent); }
+.sv-in.hex { width: 92px; font: 12.5px ui-monospace, 'Cascadia Mono', Consolas, monospace; }
+.sv-btn, .sv-mini { height: 30px; padding: 0 14px; border-radius: 5px; border: 1px solid var(--edge); background: var(--field); color: var(--text); font: 600 12px 'Segoe UI', Inter, sans-serif; cursor: pointer; }
+.sv-mini { padding: 0 9px; }
+.sv-col { display: flex; gap: 6px; align-items: center; }
+.sv-col input[type='color'] { width: 34px; height: 28px; padding: 0; border: 1px solid var(--edge); border-radius: 4px; background: none; cursor: pointer; }
+
+/* Account strips as telemetry tiles (owner, 2026-10-13, as in the NT DOM): no text rows. */
+.acct-tiles { display: flex; flex-wrap: wrap; align-items: flex-start; gap: 4px 22px; }
+.atile { display: flex; flex-direction: column; min-width: 64px; }
+.atile label { font: 600 9.5px 'Segoe UI', Inter, sans-serif; letter-spacing: 0.1em; color: var(--muted); }
+.atile b { font: 600 15px ui-monospace, 'Cascadia Mono', Consolas, monospace; color: var(--text); white-space: nowrap; }
+.atile b.neg { color: var(--neg); }
+.atile small { font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.atile .minibar { display: block; width: 90px; height: 4px; margin-top: 3px; border-radius: 2px; background: var(--btn); overflow: hidden; }
+.atile .minibar i { display: block; height: 100%; background: var(--pos); }
+.atile .minibar i.mid { background: var(--warn); }
+.atile .minibar i.low { background: var(--neg); }
+.account .acct-tiles .mini.danger { align-self: center; }
+.account.paper-hidden .acct-tiles { display: none; }
+
+/* Tape / log toolbar, flight-panel style (owner, 2026-10-13, as in the NT DOM). */
+.side h4.tbar { display: flex; align-items: center; gap: 4px; height: 32px; padding: 0 6px 0 12px; text-transform: none; background: var(--panel); border-bottom: 1px solid var(--line); }
+.side h4.tbar > b { font: 700 10.5px 'Segoe UI', Inter, sans-serif; letter-spacing: 0.16em; color: var(--accent); margin-right: auto; }
+.tchips { display: flex; align-items: center; gap: 4px; }
+.tchip { height: 22px; padding: 0 8px; border-radius: 4px; border: 1px solid var(--edge); background: transparent; color: var(--muted); font: 600 10.5px 'Segoe UI', Inter, sans-serif; letter-spacing: 0.08em; cursor: pointer; float: none; margin: 0; }
+.tchip:hover { color: var(--text); }
+.tchip.on { background: var(--seg-on); border-color: var(--accent); color: var(--accent); }
+.tchips .tsep { width: 1px; height: 14px; margin: 0 4px; background: var(--edge); }
+
+/* The DepthIQ mark beside the brand (owner, 2026-10-13, as in the NT DOM). */
+.fbar .brandmark { width: 24px; height: 24px; flex: none; }
+
+
+/* Off-screen pins at the right of the ladder, over the Δ / profile side (owner, 2026-10-13, as in the NT DOM). */
+.ladder .rows { position: relative; }
+.ladder .rows .pins { position: absolute; right: 4px; z-index: 6; display: flex; flex-direction: column; align-items: flex-end; gap: 2px; padding: 0; pointer-events: none; }
+.ladder .rows .pins.top { top: 3px; }
+.ladder .rows .pins.bottom { bottom: 3px; flex-direction: column-reverse; }
+.ladder .rows .pins .pin { pointer-events: auto; background: rgba(var(--bg-rgb), 0.92); border: 1px solid currentColor; border-radius: 3px; font-size: 10px; line-height: 14px; padding: 0 5px; }

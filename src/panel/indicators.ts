@@ -1,4 +1,5 @@
-// Per-instrument indicator settings and the stacked-imbalance zone helper. Pure: no I/O.
+// Indicator settings (one set for every instrument) and the stacked-imbalance zone helper. Pure: no I/O.
+import { DEFAULT_PAXOR, type PaxOrCfg } from './paxor.js';
 
 export interface IndicatorCfg {
   // VWAP
@@ -31,6 +32,12 @@ export interface IndicatorCfg {
   // RTH opening range (BookDepthIQ PAXOR) — NQ and ES only
   orOn: boolean;
   orMid: boolean;
+  /** The bell ("HH:MM:SS" in `orTz`), the window after it in seconds, and the EXT rung steps in points. */
+  orStart: string;
+  orSec: number;
+  orTz: string;
+  orNqPts: number;
+  orEsPts: number;
 }
 
 export const DEFAULT_INDICATORS: IndicatorCfg = {
@@ -52,7 +59,26 @@ export const DEFAULT_INDICATORS: IndicatorCfg = {
   bigMin: 8,
   orOn: true,
   orMid: false,
+  // BookDepthIQ PAXOR RTH defaults (paxor.ts DEFAULT_PAXOR).
+  orStart: '08:30:00',
+  orSec: 30,
+  orTz: 'America/Chicago',
+  orNqPts: 65,
+  orEsPts: 15,
 };
+
+/** The opening-range config the model runs: PAXOR defaults with the user's window, steps and mid line. */
+export function orCfgOf(c: IndicatorCfg): PaxOrCfg {
+  return {
+    ...DEFAULT_PAXOR,
+    startTime: c.orStart || DEFAULT_PAXOR.startTime,
+    durationSec: Math.max(1, Math.round(c.orSec) || DEFAULT_PAXOR.durationSec),
+    timezone: c.orTz || DEFAULT_PAXOR.timezone,
+    nqLevelPoints: c.orNqPts > 0 ? c.orNqPts : DEFAULT_PAXOR.nqLevelPoints,
+    esLevelPoints: c.orEsPts > 0 ? c.orEsPts : DEFAULT_PAXOR.esLevelPoints,
+    showMid: c.orMid,
+  };
+}
 
 /** Settings for `symbol`: its saved overrides on top of the defaults. Kept for reading old settings. */
 export function indicatorsFor(all: Record<string, Partial<IndicatorCfg>> | undefined, symbol: string | undefined): IndicatorCfg {

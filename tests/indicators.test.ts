@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_INDICATORS, indicatorsAll, indicatorsFor, migrateIndicators, parseBands, stackZones } from '../src/panel/indicators.js';
+import { DEFAULT_INDICATORS, indicatorsAll, indicatorsFor, migrateIndicators, orCfgOf, parseBands, stackZones } from '../src/panel/indicators.js';
 import { Vwap, parseHhmm, sessionWindow } from '../src/panel/vwap.js';
 
 describe('VWAP', () => {
@@ -60,6 +60,13 @@ describe('indicator settings', () => {
     expect(migrateIndicators(old, 'NDX-USD-PERP')).toEqual({ bigMin: 5 });
     expect(migrateIndicators(old, 'ETH-PERP')).toEqual({ bigMin: 1 });
     expect(migrateIndicators(undefined, 'X')).toEqual({});
+  });
+
+  it('opening-range settings: Vest/PAXOR defaults, the user window and steps, bad values fall back', () => {
+    expect(orCfgOf(DEFAULT_INDICATORS)).toMatchObject({ startTime: '08:30:00', durationSec: 30, timezone: 'America/Chicago', nqLevelPoints: 65, esLevelPoints: 15, showMid: false });
+    const mine = orCfgOf({ ...DEFAULT_INDICATORS, orStart: '09:30:00', orSec: 60, orTz: 'America/New_York', orNqPts: 50, orEsPts: 10, orMid: true });
+    expect(mine).toMatchObject({ startTime: '09:30:00', durationSec: 60, timezone: 'America/New_York', nqLevelPoints: 50, esLevelPoints: 10, showMid: true });
+    expect(orCfgOf({ ...DEFAULT_INDICATORS, orStart: '', orSec: 0, orNqPts: -1 })).toMatchObject({ startTime: '08:30:00', durationSec: 30, nqLevelPoints: 65 });
   });
 
   it('band list parsing', () => {

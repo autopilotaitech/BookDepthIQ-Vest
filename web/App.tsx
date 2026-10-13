@@ -24,6 +24,7 @@ import { parseSplit, scaleOrders, splitTargets, type SkewDir, type Target } from
 import type { BracketCtx } from '../src/live/session';
 import { EVAL_PACKAGES, INSTANT_MAX_LEV, INSTANT_PACKAGES, marketLevCap } from '../src/panel/riskcalc';
 import { RiskView } from './RiskView';
+import { SettingsView } from './SettingsView';
 import { OrderLog, type OrderLogEntry, type OrderLogStatus } from '../src/panel/orderlog';
 
 /** Default ladder column widths (fr). Dragging a header divider overrides them per column. */
@@ -287,6 +288,7 @@ export function App() {
     return () => ro.disconnect();
   }, []);
   const started = useRef(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   const update = useCallback((patch: Partial<Settings>) => {
     setS((prev) => {
@@ -1530,6 +1532,17 @@ export function App() {
           onClose={() => update({ showRisk: false })}
         />
       )}
+      {settingsOpen && (
+        <SettingsView
+          s={s}
+          update={update}
+          ind={ind}
+          setInd={setInd}
+          profileNote={m.profileLoading ? 'loading history…' : `counting from ${new Date(m.profileFrom).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}`}
+          resetPaper={() => m.resetPaper()}
+          onClose={() => setSettingsOpen(false)}
+        />
+      )}
       {live ? (
         <>
           <div className="live-banner">LIVE — {L.account?.label} — real orders</div>
@@ -1551,6 +1564,7 @@ export function App() {
           KILL set apart in red; the market numbers on their own telemetry line under it. */}
       <header className="bar fbar">
         <div className="hz left">
+          <img className="brandmark" src="icons/icon-48.png" alt="" />
           <b className="brand">BOOKDEPTHIQ</b>
           <select
             value={m.info?.symbol ?? ''}
@@ -1645,6 +1659,9 @@ export function App() {
           </button>
           <button className={`mini ${s.showRisk ? 'on' : ''}`} onClick={() => update({ showRisk: !s.showRisk })} title="risk calculator: size, leverage and the fail line on any Vest market; 'Use in DOM' sets the ticket">
             RISK
+          </button>
+          <button className={`mini ${settingsOpen ? 'on' : ''}`} onClick={() => setSettingsOpen(true)} title="account, warnings, protect my day, ladder, indicators, opening range, colours">
+            SETTINGS
           </button>
           <button className="kill" onClick={killNow} title="KILL (Ctrl+K): close every position on every symbol at market and cancel every order. Never blocked." aria-label="Kill switch: close everything">
             KILL ⏻
@@ -1771,43 +1788,57 @@ export function App() {
 
       {live && (
         <section className="account live">
-          <div className="acct-nums">
-            <span title="GET /v3/accounts amount">
-              Balance <b>{L.balance === undefined ? '—' : `$${L.balance.toFixed(2)}`}</b>
-            </span>
-            <span title="max_drawdown_limit from /v3/capital/accounts/active — the account fails below it">
-              Floor <b>{L.floor() === undefined ? '—' : `$${L.floor()!.toFixed(2)}`}</b> · room <b>${Math.max(0, equity - floor).toFixed(2)}</b>
-            </span>
-            <span title="saved per account/symbol, else floor(1 / initMarginRatio), capped at the account max">
-              Leverage <b>{lev}x</b>
-              {L.account?.maxLeverage !== undefined ? ` (max ${L.account.maxLeverage}x)` : ''}
-            </span>
-            <span>
-              Power <b>{fmtK(equity * lev)}</b> · Max <b>{maxU.toFixed(sizeDec)}u</b>
-            </span>
-            <span title="LIVE hard size cap (settings)">
-              Cap <b>{s.liveSizeCap > 0 ? `${s.liveSizeCap}u` : 'off'}</b>
-            </span>
-            <span className={L.positionsFresh() ? '' : 'neg'} title={L.pollError || (L.pushOpen ? 'Vest pushes account changes; positions + orders re-read instantly (5 s safety net)' : 'positions + orders every 1.5 s, balance every 10 s')}>
-              {L.positionsFresh() ? (L.pushOpen ? 'Vest ⚡ live' : 'Vest synced (polling)') : `Vest STALE${L.pollError ? `: ${L.pollError.slice(0, 60)}` : ''}`}
-            </span>
-            {L.api.rateRemaining !== null && <span title="x-ratelimit-remaining">rate {L.api.rateRemaining}</span>}
-            {!L.tokenOk() && (
-              <span className="neg" title="Entries need a fresh login. FLATTEN / CANCEL keep working while the ~15 min account token lasts.">
-                Vest login expired — reload the Vest tab
-              </span>
-            )}
-          </div>
           {(() => {
             // Room to the fail floor, live: full bar = the account's whole drawdown allowance.
             const room = Math.max(0, equity - floor);
             const full = Math.max(room, (L.account?.initialCapital ?? 0) - floor);
-            if (!(full > 0) || L.floor() === undefined) return null;
-            const f = room / full;
+            const f = full > 0 && L.floor() !== undefined ? room / full : undefined;
+            const status = L.positionsFresh() ? (L.pushOpen ? 'Vest pushes account changes; positions + orders re-read instantly (5 s safety net)' : 'Vest synced by polling: positions + orders every 1.5 s, balance every 10 s') : `Vest STALE${L.pollError ? `: ${L.pollError}` : ''}`;
             return (
-              <div className="roombar" title={`$${room.toFixed(2)} of $${full.toFixed(2)} left before the account fails (open P&L on this market included)`}>
-                <i className={f < 0.25 ? 'low' : f < 0.5 ? 'mid' : ''} style={{ width: `${(f * 100).toFixed(1)}%` }} />
-                <span>room to floor ${room.toFixed(2)} · {(f * 100).toFixed(0)}%</span>
+              <div className="acct-tiles">
+                <div className="atile" title={`GET /v3/accounts amount · ${status}${L.api.rateRemaining !== null ? ` · rate limit left ${L.api.rateRemaining}` : ''}`}>
+                  <label>BALANCE</label>
+                  <b>{L.balance === undefined ? '—' : `$${L.balance.toFixed(2)}`}</b>
+                </div>
+                <div className="atile" title={f === undefined ? 'room to the fail floor' : `$${room.toFixed(2)} of $${full.toFixed(2)} left before the account fails (open P&L on this market included)`}>
+                  <label>ROOM</label>
+                  <b className={f !== undefined && f < 0.25 ? 'neg' : ''}>${room.toFixed(2)}</b>
+                  {f !== undefined && (
+                    <span className="minibar">
+                      <i className={f < 0.25 ? 'low' : f < 0.5 ? 'mid' : ''} style={{ width: `${(f * 100).toFixed(1)}%` }} />
+                    </span>
+                  )}
+                </div>
+                <div className="atile" title="max_drawdown_limit from /v3/capital/accounts/active — the account fails below it">
+                  <label>FLOOR</label>
+                  <b>{L.floor() === undefined ? '—' : `$${L.floor()!.toFixed(2)}`}</b>
+                </div>
+                <div className="atile" title="saved per account/symbol, else floor(1 / initMarginRatio), capped at the account max">
+                  <label>LEVERAGE</label>
+                  <b>{lev}x</b>
+                  {L.account?.maxLeverage !== undefined && <small>max {L.account.maxLeverage}x</small>}
+                </div>
+                <div className="atile">
+                  <label>POWER</label>
+                  <b>{fmtK(equity * lev)}</b>
+                </div>
+                <div className="atile" title={`largest size at this leverage${s.liveSizeCap > 0 ? `; LIVE cap ${s.liveSizeCap}u (settings)` : ''}`}>
+                  <label>MAX SIZE</label>
+                  <b>{maxU.toFixed(sizeDec)}u</b>
+                  {s.liveSizeCap > 0 && <small>cap {s.liveSizeCap}u</small>}
+                </div>
+                {!L.positionsFresh() && (
+                  <div className="atile" title={status}>
+                    <label>VEST</label>
+                    <b className="neg">STALE</b>
+                  </div>
+                )}
+                {!L.tokenOk() && (
+                  <div className="atile" title="Entries need a fresh login. FLATTEN / CANCEL keep working while the ~15 min account token lasts.">
+                    <label>LOGIN</label>
+                    <b className="neg">expired — reload the Vest tab</b>
+                  </div>
+                )}
               </div>
             );
           })()}
@@ -1815,206 +1846,42 @@ export function App() {
       )}
 
       <section className={`account ${m.failed ? 'failed' : ''} ${live ? 'paper-hidden' : ''}`}>
-        <div className="acct-nums">
-          <span>
-            Account <b>${equity.toFixed(2)}</b>
-          </span>
-          <span className={ddLeft < s.maxDrawdownUsd * 0.3 ? 'neg' : ''}>
-            Drawdown <b>${ddUsed.toFixed(2)}</b> / ${s.maxDrawdownUsd.toFixed(2)} · left <b>${Math.max(0, ddLeft).toFixed(2)}</b>
-          </span>
-          <span className={levUsed > s.leverage * 0.8 ? 'neg' : ''} title="open notional ÷ account value (Vest's header 'Leverage'). Margin = notional ÷ order leverage.">
-            Leverage <b>{levUsed.toFixed(1)}x</b> / {s.leverage}x · margin <b>${margin.toFixed(2)}</b>
-          </span>
-          <span>
-            Power <b>{fmtK(equity * s.leverage)}</b> · free <b>{fmtK(Math.max(0, equity * s.leverage - openNotional))}</b>
-          </span>
-          <span>
-            Max <b>{maxU.toFixed(sizeDec)}u</b> <small>{eq(maxU)}</small>
-          </span>
+        <div className="acct-tiles">
+          <div className="atile">
+            <label>EQUITY</label>
+            <b>${equity.toFixed(2)}</b>
+          </div>
+          <div className="atile" title={`drawdown used $${ddUsed.toFixed(2)} of $${s.maxDrawdownUsd.toFixed(2)}`}>
+            <label>ROOM</label>
+            <b className={ddLeft < s.maxDrawdownUsd * 0.3 ? 'neg' : ''}>${Math.max(0, ddLeft).toFixed(2)}</b>
+            <span className="minibar">
+              <i
+                className={ddLeft < s.maxDrawdownUsd * 0.25 ? 'low' : ddLeft < s.maxDrawdownUsd * 0.5 ? 'mid' : ''}
+                style={{ width: `${Math.max(0, Math.min(100, (Math.max(0, ddLeft) / Math.max(1e-9, s.maxDrawdownUsd)) * 100)).toFixed(1)}%` }}
+              />
+            </span>
+          </div>
+          <div className="atile" title="open notional ÷ account value (Vest's header 'Leverage'). Margin = notional ÷ order leverage.">
+            <label>LEVERAGE</label>
+            <b className={levUsed > s.leverage * 0.8 ? 'neg' : ''}>{levUsed.toFixed(1)}x</b>
+            <small>/ {s.leverage}x · margin ${margin.toFixed(2)}</small>
+          </div>
+          <div className="atile">
+            <label>POWER</label>
+            <b>{fmtK(equity * s.leverage)}</b>
+            <small>free {fmtK(Math.max(0, equity * s.leverage - openNotional))}</small>
+          </div>
+          <div className="atile">
+            <label>MAX SIZE</label>
+            <b>{maxU.toFixed(sizeDec)}u</b>
+            <small>{eq(maxU)}</small>
+          </div>
           {m.failed && (
             <button className="mini danger" onClick={() => m.resetPaper()}>
               FAILED — reset paper
             </button>
           )}
         </div>
-        <div className="ddbar">
-          <i style={{ width: `${Math.min(100, (ddUsed / Math.max(1e-9, s.maxDrawdownUsd)) * 100)}%` }} />
-        </div>
-        <details>
-          <summary>settings</summary>
-          <button className="mini" onClick={() => update({ ladderUsd: !s.ladderUsd })}>
-            sizes {s.ladderUsd ? 'USD' : 'units'}
-          </button>
-          <button className="mini" title="index-implied mid — lags Vest by ~600 ms, reference only" onClick={() => update({ showIndexRef: !s.showIndexRef })}>
-            ◆ idx {s.showIndexRef ? 'on' : 'off'}
-          </button>
-          <br />
-          <span className="mini-presets" title="Vest Instant funding: start value, static drawdown, 25x account max (funded.now listing, 2026-10). Sets the paper account; check your own Vest screen.">
-            Instant
-            {INSTANT_PACKAGES.map((x) => (
-              <button
-                key={x.start}
-                className={`mini ${s.startEquity === x.start && s.maxDrawdownUsd === x.dd ? 'on' : ''}`}
-                onClick={() => update({ startEquity: x.start, maxDrawdownUsd: x.dd, leverage: INSTANT_MAX_LEV })}
-              >
-                {x.label}
-              </button>
-            ))}
-          </span>
-          <span className="mini-presets" title="Vest Capital evaluation / funded tiers: start value, 6% static drawdown (docs.vestmarkets.com, account tiers, 2026-10). Sets the paper account; leverage left as is. Check your own Vest screen.">
-            Funding
-            {EVAL_PACKAGES.map((x) => (
-              <button
-                key={x.start}
-                className={`mini ${s.startEquity === x.start && s.maxDrawdownUsd === x.dd ? 'on' : ''}`}
-                onClick={() => update({ startEquity: x.start, maxDrawdownUsd: x.dd })}
-              >
-                {x.label}
-              </button>
-            ))}
-          </span>
-          <br />
-          <label>
-            start value $<input type="number" step={0.01} value={s.startEquity} onChange={(e) => update({ startEquity: Number(e.target.value) || 0 })} />
-          </label>
-          <label>
-            max drawdown $<input type="number" step={0.01} value={s.maxDrawdownUsd} onChange={(e) => update({ maxDrawdownUsd: Number(e.target.value) || 0 })} />
-          </label>
-          <label>
-            leverage x<input type="number" min={1} value={s.leverage} onChange={(e) => update({ leverage: Math.max(1, Number(e.target.value) || 1) })} />
-          </label>
-          <small>(paper only)</small>
-          <br />
-          <label title="Optional largest size a LIVE entry may send. 0 = off: trading power is the limit, as on Vest's own ticket.">
-            LIVE size cap u (0 = off)
-            <input type="number" min={0} step={0.001} value={s.liveSizeCap} onChange={(e) => update({ liveSizeCap: Math.max(0, Number(e.target.value) || 0) })} />
-          </label>
-          <label title="fat-finger: a limit or stop this far from the market shows a warning (0 = 4 × ATR); it still sends">
-            far from market pts
-            <input type="number" min={0} step={1} value={s.ffFarPts} onChange={(e) => update({ ffFarPts: Math.max(0, Number(e.target.value) || 0) })} />
-          </label>
-          <label title="fat-finger: a size this many × your normal (last 20 trades) shows a warning; it still sends">
-            size × normal
-            <input type="number" min={1} step={0.5} value={s.ffSizeMult} onChange={(e) => update({ ffSizeMult: Math.max(1, Number(e.target.value) || 2) })} />
-          </label>
-          <label title="the one-click $ risk buttons next to the size box">
-            risk buttons $
-            <input type="text" className="wide" defaultValue={s.riskPresets.join(', ')} onBlur={(e) => update({ riskPresets: e.target.value.split(/[\s,]+/).map(Number).filter((x) => x > 0).slice(0, 6) })} />
-          </label>
-          <fieldset className="protect">
-            <legend>Protect my day (0 = off) — new entries only; FLATTEN and CANCEL are never locked</legend>
-            <label title="lock new entries once the day (from 17:00 Chicago) is down this much">
-              daily loss $
-              <input type="number" min={0} step={1} value={s.dayLossUsd} onChange={(e) => update({ dayLossUsd: Math.max(0, Number(e.target.value) || 0) })} />
-            </label>
-            <label title="when the daily loss limit is hit, close every open position at market (the panel acts without a click)">
-              <input type="checkbox" checked={s.closeAtDayLimit} disabled={!s.dayLossUsd} onChange={(e) => update({ closeAtDayLimit: e.target.checked })} /> also close open trades
-            </label>
-            <label>
-              max trades / day
-              <select value={s.maxTradesDay} onChange={(e) => update({ maxTradesDay: Number(e.target.value) })}>
-                {[0, 3, 5, 10].map((v) => (
-                  <option key={v} value={v}>
-                    {v || 'off'}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label>
-              cooldown after a loss
-              <select value={s.cooldownSec} onChange={(e) => update({ cooldownSec: Number(e.target.value) })}>
-                <option value={0}>off</option>
-                <option value={30}>30 s</option>
-                <option value={60}>1 min</option>
-                <option value={300}>5 min</option>
-              </select>
-            </label>
-            <label title="close a position 5 min before Vest's weekend lock (crypto has none); the panel acts without a click, and only while this window is open">
-              <input type="checkbox" checked={s.weekendClose} onChange={(e) => update({ weekendClose: e.target.checked })} /> close before the weekend lock
-            </label>
-          </fieldset>
-          <fieldset>
-            <legend>Heat · nPOC</legend>
-            <label title="heatmap window: 30 slices across it; pull/stack and absorb count over a fifth of it (1 min at 5 min)">
-              heat window
-              <select value={s.heatMinutes ?? 5} onChange={(e) => update({ heatMinutes: Number(e.target.value) })}>
-                {[5, 15, 30, 60].map((v) => (
-                  <option key={v} value={v}>
-                    {v} min
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label title="naked POC: each period's POC drawn as a line only while naked — gone once price trades back there">
-              <input type="checkbox" checked={s.npocOn !== false} onChange={(e) => update({ npocOn: e.target.checked })} /> nPOC lines
-            </label>
-            <label>
-              period
-              <select value={s.npocMinutes ?? 15} onChange={(e) => update({ npocMinutes: Number(e.target.value) })}>
-                {[5, 15, 30, 60].map((v) => (
-                  <option key={v} value={v}>
-                    {v} min
-                  </option>
-                ))}
-              </select>
-            </label>
-          </fieldset>
-          <details className="indset">
-            <summary>Indicators (one set for every instrument)</summary>
-            <fieldset>
-              <legend>
-                <label><input type="checkbox" checked={ind.vwapOn} onChange={(e) => setInd({ vwapOn: e.target.checked })} /> VWAP</label>
-              </legend>
-              <label title="session start, HH:MM in the time zone below">start <input type="text" size={5} defaultValue={ind.vwapStart} key={`vs${m.info?.symbol}`} onBlur={(e) => setInd({ vwapStart: e.target.value.trim() })} /></label>
-              <label title="session end, HH:MM (earlier than start = crosses midnight)">end <input type="text" size={5} defaultValue={ind.vwapEnd} key={`ve${m.info?.symbol}`} onBlur={(e) => setInd({ vwapEnd: e.target.value.trim() })} /></label>
-              <label>
-                zone
-                <select value={ind.vwapTz} onChange={(e) => setInd({ vwapTz: e.target.value })}>
-                  <option value="America/New_York">New York</option>
-                  <option value="America/Chicago">Chicago</option>
-                  <option value="Europe/London">London</option>
-                  <option value="UTC">UTC</option>
-                </select>
-              </label>
-              <label title="σ multipliers for the bands, e.g. 1, 2 (blank = none)">bands σ <input type="text" size={6} defaultValue={ind.vwapBands.join(', ')} key={`vb${m.info?.symbol}`} onBlur={(e) => setInd({ vwapBands: parseBands(e.target.value) })} /></label>
-            </fieldset>
-            <fieldset>
-              <legend>Volume profile · Δ · footprint</legend>
-              <label title="count prints from this time (HH:MM, same zone as VWAP); blank = from when the panel opened or switched market">
-                start <input type="text" size={5} placeholder="open" defaultValue={ind.profileStart} key={`ps${m.info?.symbol}`} onBlur={(e) => setInd({ profileStart: e.target.value.trim() })} />
-              </label>
-              <label title="off = live prints only; on = backfill from the start time with Vest's public trades">
-                <input type="checkbox" checked={ind.profileHistory} onChange={(e) => setInd({ profileHistory: e.target.checked })} /> use history
-              </label>
-              <small className="muted">{m.profileLoading ? 'loading history…' : `from ${new Date(m.profileFrom).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}`}</small>
-            </fieldset>
-            <fieldset>
-              <legend>
-                <label><input type="checkbox" checked={ind.fpOn} onChange={(e) => setInd({ fpOn: e.target.checked })} /> Footprint imbalances</label>
-              </legend>
-              <label title="a Sold/Bought cell lights when one side beats the other diagonally by this ratio">ratio <input type="number" min={1.5} step={0.5} value={ind.fpRatio} onChange={(e) => setInd({ fpRatio: Math.max(1.5, Number(e.target.value) || 3) })} /></label>
-              <label title="ignore rows that traded less than this % of the busiest row">min vol % <input type="number" min={0} step={1} value={ind.fpMinPct} onChange={(e) => setInd({ fpMinPct: Math.max(0, Number(e.target.value) || 0) })} /></label>
-              <label title="consecutive imbalances that make a stacked zone">stack <input type="number" min={2} step={1} value={ind.fpStack} onChange={(e) => setInd({ fpStack: Math.max(2, Math.round(Number(e.target.value) || 3)) })} /></label>
-              <label><input type="checkbox" checked={ind.fpLines} onChange={(e) => setInd({ fpLines: e.target.checked })} /> zone lines</label>
-            </fieldset>
-            {orRoot(m.info?.displaySymbol ?? m.info?.symbol) && (
-              <fieldset>
-                <legend>
-                  <label><input type="checkbox" checked={ind.orOn} onChange={(e) => setInd({ orOn: e.target.checked })} /> RTH opening range (BookDepthIQ PAXOR)</label>
-                </legend>
-                <span className="muted">08:30:00–08:30:30 Chicago · EXT every {orRoot(m.info?.displaySymbol ?? m.info?.symbol) === 'NQ' ? '65' : '15'} pts · kept until the next bell</span>
-                <label><input type="checkbox" checked={ind.orMid} onChange={(e) => setInd({ orMid: e.target.checked })} /> mid line</label>
-              </fieldset>
-            )}
-            <fieldset>
-              <legend>
-                <label><input type="checkbox" checked={ind.bigOn} onChange={(e) => setInd({ bigOn: e.target.checked })} /> Big trades</label>
-              </legend>
-              <label title="a print this size or more is highlighted on the tape (units)">min size u <input type="number" min={0} step={0.5} value={ind.bigMin} onChange={(e) => setInd({ bigMin: Math.max(0, Number(e.target.value) || 0) })} /></label>
-            </fieldset>
-          </details>
-          <button className="mini" onClick={() => m.resetPaper()}>reset paper account</button>
-        </details>
       </section>
 
       <section className="position">
@@ -2240,8 +2107,10 @@ export function App() {
               />
             ))}
           </div>
-          <div className="pins top">{pinned.filter((p) => p.above).map(pinRow)}</div>
           <div className="rows" ref={rowsRef}>
+          {/* Off-screen levels pinned at the right, top for above and bottom for below (owner, 2026-10-13, as in the NT DOM). */}
+          <div className="pins top">{pinned.filter((p) => p.above).map(pinRow)}</div>
+          <div className="pins bottom">{pinned.filter((p) => !p.above).map(pinRow)}</div>
           {rows.map((t) => {
             const b = bidAt.get(t);
             const a = askAt.get(t);
@@ -2392,7 +2261,6 @@ export function App() {
             );
           })}
           </div>
-          <div className="pins bottom">{pinned.filter((p) => !p.above).map(pinRow)}</div>
           {live && s.showBlotter && L.blotter.rows.length > 0 && (
             <div className="blotter" title="every request sent to Vest: SENT → ACKED → WORKING → FILLED / GONE, or REJECTED. NO ANSWER = still waiting after 3 s: check Vest before resending.">
               {L.blotter.rows.slice(0, 4).map((r) => {
@@ -2417,28 +2285,31 @@ export function App() {
         <div className="sidegrip" title="drag to size the right column" onPointerDown={startSideResize} />
         <aside className="side" style={{ width: liveSide ?? s.sideWidth ?? 380 }}>
           <div className="tape">
-            <h4>
-              {s.showLog ? 'Log' : s.showJournal ? 'Journal' : 'Vest tape'}
-              <button className={`mini ${s.showJournal ? 'on' : ''}`} title="trade journal: every trade with its setup, risk, result and R (click again for the tape)" onClick={() => update({ showJournal: !s.showJournal, showLog: false })}>
-                journal
-              </button>
-              <button className={`mini ${s.showTicket !== false ? 'on' : ''}`} title="show or hide the ticket settings (hidden = tape and order buttons only)" onClick={() => update({ showTicket: s.showTicket === false })}>
-                ticket
-              </button>
-              <button className={`mini ${s.showHeat ? 'on' : ''}`} title="heatmap + pull/stack column on the ladder" onClick={() => update({ showHeat: !s.showHeat })}>
-                heat
-              </button>
-              <button className={`mini ${s.showLog ? 'on' : ''}`} title="order log and the PAPER / LIVE request log (click again for the tape)" onClick={() => update({ showLog: !s.showLog, showJournal: false })}>
-                log
-              </button>
-              <button className="mini" title={s.showTrend ? 'hide the SuperTrend lines and badge' : 'show the dual SuperTrend (BookDepthIQ) on the ladder'} onClick={() => update({ showTrend: !s.showTrend })}>
-                {s.showTrend ? 'ST on' : 'ST'}
-              </button>
-              {!s.showDelta && (
-                <button className="mini" title="show the Δ (delta) column on the ladder" onClick={() => update({ showDelta: true })}>
+            {/* Toolbar, flight-panel style (owner, 2026-10-13, as in the NT DOM): small-caps chips, outline
+                off / accent on; view chips (JOURNAL, LOG) and ladder toggles (TICKET, HEAT, ST, Δ) split. */}
+            <h4 className="tbar">
+              <b>{s.showLog ? 'LOG' : s.showJournal ? 'JOURNAL' : 'TAPE'}</b>
+              <span className="tchips">
+                <button className={`tchip ${s.showJournal ? 'on' : ''}`} title="trade journal: every trade with its setup, risk, result and R (click again for the tape)" onClick={() => update({ showJournal: !s.showJournal, showLog: false })}>
+                  JOURNAL
+                </button>
+                <button className={`tchip ${s.showLog ? 'on' : ''}`} title="order log and the PAPER / LIVE request log (click again for the tape)" onClick={() => update({ showLog: !s.showLog, showJournal: false })}>
+                  LOG
+                </button>
+                <i className="tsep" />
+                <button className={`tchip ${s.showTicket !== false ? 'on' : ''}`} title="show or hide the ticket settings (hidden = tape and order buttons only)" onClick={() => update({ showTicket: s.showTicket === false })}>
+                  TICKET
+                </button>
+                <button className={`tchip ${s.showHeat ? 'on' : ''}`} title="heatmap + pull/stack column on the ladder" onClick={() => update({ showHeat: !s.showHeat })}>
+                  HEAT
+                </button>
+                <button className={`tchip ${s.showTrend ? 'on' : ''}`} title={s.showTrend ? 'hide the SuperTrend lines and badge' : 'show the dual SuperTrend (BookDepthIQ) on the ladder'} onClick={() => update({ showTrend: !s.showTrend })}>
+                  ST
+                </button>
+                <button className={`tchip ${s.showDelta ? 'on' : ''}`} title="the Δ (delta) column on the ladder" onClick={() => update({ showDelta: !s.showDelta })}>
                   Δ
                 </button>
-              )}
+              </span>
             </h4>
             {s.showJournal && !s.showLog && <JournalView trades={journal} onClear={() => saveJournal([])} onSync={() => void syncVest()} syncMsg={syncMsg} />}
             {!s.showJournal && !s.showLog && m.tape.slice(0, 120).map((r) => (
@@ -2454,10 +2325,10 @@ export function App() {
             {!s.showJournal && !s.showLog && m.tape.length === 0 && <div className="muted">waiting for trades…</div>}
           </div>
           {s.showLog && <div className="log">
-            <h4>
-              Order log{' '}
+            <h4 className="tbar">
+              <b>ORDER LOG</b>
               <button
-                className="mini"
+                className="tchip"
                 title="copy every order click and what became of it, plus the LIVE request log — paste it to Claude"
                 onClick={() =>
                   void navigator.clipboard
@@ -2471,10 +2342,10 @@ export function App() {
                     .catch(() => {})
                 }
               >
-                copy
+                COPY
               </button>{' '}
-              <button className="mini" title="clear the order log" onClick={() => (olog.current!.clear(), olAdd('ok', 'order log cleared'))}>
-                clear
+              <button className="tchip" title="clear the order log" onClick={() => (olog.current!.clear(), olAdd('ok', 'order log cleared'))}>
+                CLEAR
               </button>
             </h4>
             {olog.current!.entries
@@ -2486,18 +2357,20 @@ export function App() {
                 </div>
               ))}
             {live || L.log.length > 0 ? (
-              <h4>
-                LIVE log{' '}
+              <h4 className="tbar">
+                <b>LIVE LOG</b>
                 <button
-                  className="mini"
+                  className="tchip"
                   title="copy the whole request/response log (oldest first) — tokens are already redacted"
                   onClick={() => void navigator.clipboard?.writeText(L.log.slice().reverse().join('\n')).catch(() => {})}
                 >
-                  copy
+                  COPY
                 </button>
               </h4>
             ) : (
-              <h4>Paper log</h4>
+              <h4 className="tbar">
+                <b>PAPER LOG</b>
+              </h4>
             )}
             {(live ? L.log.slice(0, 200) : m.log).map((l, i) => (
               <div key={i} className={l.includes('→') ? 'req' : l.includes('←') ? 'res' : ''}>

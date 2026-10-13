@@ -5,9 +5,9 @@ import { ladderScore } from '../book/stats.js';
 import { signedQty } from './profile.js';
 import { DualTrend, type DualSnapshot } from './supertrend.js';
 import { PremiumWindow, fundingClass, premiumSample, type FundingClass } from './funding.js';
-import { DEFAULT_INDICATORS, type IndicatorCfg } from './indicators.js';
+import { DEFAULT_INDICATORS, orCfgOf, type IndicatorCfg } from './indicators.js';
 import { Vwap, sessionWindow } from './vwap.js';
-import { DEFAULT_PAXOR, PaxOr, levelFactorTicks, orRoot, orSession } from './paxor.js';
+import { PaxOr, levelFactorTicks, orRoot, orSession } from './paxor.js';
 import { PaperBroker, type Result, type Side } from '../sim/paper.js';
 import { failFloor, preTradeCheck, type AccountSpec } from '../sim/account.js';
 import { BasisTracker, SpreadWindow } from './ladderMath.js';
@@ -614,9 +614,9 @@ export class PanelModel {
   private refreshOrSession(): void {
     const info = this.info;
     const root = orRoot(info?.displaySymbol ?? info?.symbol);
-    const cfg = { ...DEFAULT_PAXOR, showMid: this.ind.orMid };
+    const cfg = orCfgOf(this.ind);
     const s = this.ind.orOn && root && info ? orSession(this.clock(), cfg) : undefined;
-    const key = s && info ? `${info.symbol}|${s.start}|${cfg.showMid}` : '';
+    const key = s && info ? `${info.symbol}|${s.start}|${s.orbEnd}|${cfg.showMid}|${cfg.nqLevelPoints}|${cfg.esLevelPoints}` : '';
     if (key === this.orKey) return;
     this.orKey = key;
     this.or = s && info ? new PaxOr(s, levelFactorTicks(root, cfg, this.tick), cfg.showMid) : undefined;

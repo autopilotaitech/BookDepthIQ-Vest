@@ -431,3 +431,6 @@ in one file, `src/vest/tradingShapes.ts`.
 ## License
 
 MIT. See [LICENSE](LICENSE). Not affiliated with or endorsed by Vest Markets.
+
+**Trading perpetual futures involves substantial risk of loss.** This is a tool, not financial
+advice, and it comes with no warranty. Read [DISCLAIMER.md](DISCLAIMER.md).
