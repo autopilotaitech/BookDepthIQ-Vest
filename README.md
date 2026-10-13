@@ -5,9 +5,11 @@ with NQ. It runs as a Chrome extension next to your logged-in Vest tab. You get 
 live Vest book, tape and volume, one-click market, limit and scale entries with TP/SL brackets (up
 to three partial targets), $-risk sizing, a stop and targets you can preview on the ladder before
 you enter, trade management (B/E, trailing stop on R or SuperTrend, close half) and one-key
-flatten. A **RISK** calculator (any market, Instant account presets) sizes your trades and writes
-the plan into the ticket, and a **SuperTrend scalp read** in the header tells you when an ST1
-scalp is a pullback worth taking and when it's a chase. **New since 1.4: see [What's new](#whats-new).**
+flatten. A **RISK** calculator (any market, Instant and Funding/evaluation account presets) sizes
+your trades and writes the plan into the ticket, and a **SuperTrend scalp read** in the header
+tells you when an ST1 scalp is a pullback worth taking and when it's a chase. Every order goes on
+**one click**; an **order log** records each click and what became of it, and the **journal**
+matches your Vest position history. **New since 1.4: see [What's new](#whats-new).**
 
 **Companion:** [Vest Liquidity Scanner](https://github.com/autopilotaitech/BookDepthIQ-Vest-Scanner)
 ranks all of Vest's markets by real trading, volatility and trend vs chop, so you know which one to
@@ -230,7 +232,8 @@ floor** bar under the account row shows how much of the drawdown allowance is le
 **Hotkeys**
 - **F** = flatten and **Esc** = cancel all. Both always work.
 - **B** buy, **S** sell, **E** B/E and **R** reverse work only while **HOTKEYS ARMED** is on. Click
-  the toggle to arm them.
+  the toggle to arm them. They start on **SAFE** each time the panel opens and go back to SAFE
+  when you go LIVE; pressing one on SAFE says so in the amber bar and the order log.
 - **Space** re-centres the ladder. Otherwise the ladder holds still and re-centres only when price
   drifts a sixth of the screen from the middle. While your mouse is over the ladder it doesn't move
   at all (unless price nears the edge), so the row you aim at stays put.
@@ -254,7 +257,7 @@ chase** when price is 2σ+ from VWAP or 3+ ATR from ST1. It describes the market
 trades.
 
 **Journal** (the **journal** button top-right, in the Vest tape header next to *ST on* and *hide
-log*; click again for the tape): every round trip on the market on screen, with the setup
+log*; click again for the tape): every round trip, with the setup
 tag, size, entry, stop, $ result and R, totals and results per setup, and **copy CSV**. PAPER
 results are exact (fees in). LIVE rows **sync with Vest's position history** (v1.9.3): a few
 seconds after each LIVE close, when you go LIVE, and on **sync Vest**. Each row takes Vest's own
@@ -282,6 +285,13 @@ account) and Vest's live prices. It never sends an order.
   static drawdown $10 / $200 / $400 / $1,000 as listed publicly, 25x) or **Custom**. The Instant
   floor is static, so typing your balance now shows your room (profit adds to it). The paper
   account's settings have the same **Instant** buttons. Check your own Vest screen.
+- **Funding (evaluation) accounts**: Account → **Funding**: **Silver $5K / Gold $10K / Platinum
+  $25K**, 6% static max drawdown (floor $4,700 / $9,400 / $23,500), and the daily loss limit of
+  your plan (**3% / 4% / none**). With a daily limit, today's room is the smaller of the limit and
+  equity − floor. The note shows the 1-Step targets (10% / 20%) and 2-Step (10% then 5%); the
+  funded account you get on passing has the same rules. Numbers from Vest's own
+  [account tiers](https://docs.vestmarkets.com/vest-capital/account-tiers) page; every box stays
+  editable. Paper settings have **Funding** buttons too.
 - **Use in DOM** writes the plan into the ticket: size mode **% room @SL** (the $ risk follows your
   room as it changes), SL and TP points, and opens that market if it isn't on screen.
 - **My max lev**: over it, the ticket warns (nothing is blocked). The ticket also shows **% of
@@ -323,6 +333,12 @@ account) and Vest's live prices. It never sends an order.
 Vest accepted it, red ✗ with the reason when it was refused. The full request/response log is in
 the **LIVE LOG** pane. Its **copy** button copies it with your login already blanked out.
 
+**Order log** (v1.9.2; click **log** in the tape header): every order click and hotkey (PAPER and
+LIVE) with the size it used and the bid/ask, any warning, anything that stopped it before it was
+sent (day limit, hotkeys on SAFE, no market loaded), Vest's answer, and any error in the page. It
+is kept across reloads. **copy** puts it, with the mode, market, feed health and size settings and
+the LIVE request log, on your clipboard — paste that into a bug report.
+
 ## What's new
 
 | Version | What changed |
@@ -351,8 +367,8 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
   the symbol. These are the same limits Vest's own ticket enforces.
 - **Optional size cap:** settings → *LIVE size cap*. 0 means off.
 - **RISK never sends an order.** *Use in DOM* only fills in the ticket (size rule, stop, target).
-  An entry over your own max leverage, or with its stop past the account's fail line, asks for a
-  second click.
+  An entry over your own max leverage, or with its stop past the account's fail line, shows a
+  warning; it still goes on one click, as on Vest's own ticket.
 - **Panel-held stops** are the only orders that fire without a click. They live in the panel, not
   on Vest: close the window, switch instrument or go to PAPER and they are disarmed (the header
   shows **⚡ N stops armed** while any are live). Each one fires once, through the same checks as a
@@ -377,16 +393,19 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
 | **"no Vest login"** after reloading the extension | Reload the Vest tab once, then wait about 3 s. |
 | Login flickers, or LIVE behaves oddly | **Close extra Vest tabs.** Keep one. |
 | Pressing LIVE seems to do nothing | Read the red text next to the PAPER/LIVE switch. It says exactly why. |
-| An order is refused | Read the red result bar under the LIVE banner. |
+| An order is refused | Read the red result bar under the LIVE banner, or the **order log** (click **log**). |
+| An order doesn't go through and nothing says why | Click **log**, try once more, then **copy** in the ORDER LOG and send it. Hotkeys on **SAFE** do nothing but say so; click **HOTKEYS SAFE** to arm them. |
+| The journal doesn't match Vest | Open the journal and click **sync Vest**. The line next to it says how many Vest positions were read, matched and added. The journal's P&L is Vest's (before fees); the **net after fees + funding** line is what your balance moved. |
 | The header says **STRETCHED — don't chase** in a strong move | Price is 2+ ATR past the ST1 line; scalps from there lost on the measured NQ data. Wait for a pullback toward ST1 (**SCALP LONG/SHORT — pullback to ST1**). |
-| RISK numbers don't match my account | Paper: settings → **Instant** buttons or type your start value, drawdown and leverage. LIVE reads them from Vest. RISK → **Instant / Custom** plans any other package. |
-| Something looks wrong on Vest | Press **FLATTEN**, check Vest's own screen, then open an issue with the copied LIVE log. |
+| RISK numbers don't match my account | Paper: settings → **Instant** or **Funding** buttons, or type your start value, drawdown and leverage. LIVE reads them from Vest. RISK → **Instant / Funding / Custom** plans any other package. |
+| Something looks wrong on Vest | Press **FLATTEN**, check Vest's own screen, then open an issue with the copied order log. |
 
 ## Reporting bugs
 
 Open an issue at https://github.com/autopilotaitech/BookDepthIQ-Vest/issues with:
 - what you clicked and what you expected
-- the **copied LIVE LOG** (your login is already blanked out, but read it before posting)
+- the **copied ORDER LOG** (click **log**, then **copy**; it includes the LIVE request log with
+  your login already blanked out, but read it before posting)
 - a screenshot of the panel and of Vest's screen
 
 ## Contributing
