@@ -30,6 +30,16 @@ interface Flow {
 }
 
 export class LiquidityTracker {
+  /** One heat bin (window / 30) and the pull/stack + absorb window (a fifth of the heat window: 1 min at
+   * the default 5 min, 12 min at 60 min). The heat window is the user's choice: 5, 15, 30 or 60 min. */
+  readonly binMs: number;
+  readonly flowMs: number;
+  constructor(windowMs = BINS * BIN_MS) {
+    const w = Math.max(BINS * 1000, windowMs);
+    this.binMs = w / BINS;
+    this.flowMs = w / 5;
+  }
+
   /** Resting size per price at the latest book. */
   private cur = new Map<number, number>();
   /** Each finished 10 s bin: per price, the TIME-AVERAGED resting size over the bin, signed
@@ -97,21 +107,21 @@ export class LiquidityTracker {
     // closing every bin that ended on the way.
     let binStart = this.binStart ?? now;
     let last = this.lastBookAt ?? now;
-    if (now - binStart > (BINS + 1) * BIN_MS) {
+    if (now - binStart > (BINS + 1) * this.binMs) {
       // After a long quiet gap, only the last 5 minutes of bins matter.
-      binStart = now - (BINS + 1) * BIN_MS;
+      binStart = now - (BINS + 1) * this.binMs;
       last = Math.max(last, binStart);
     }
     const credit = (ms: number) => {
       if (ms <= 0) return;
       for (const [p, v] of this.curSigned) this.acc.set(p, (this.acc.get(p) ?? 0) + v * ms);
     };
-    while (now - binStart >= BIN_MS) {
-      const end: number = binStart + BIN_MS;
+    while (now - binStart >= this.binMs) {
+      const end: number = binStart + this.binMs;
       credit(end - last);
       last = end;
       const avg = new Map<number, number>();
-      for (const [p, v] of this.acc) if (v !== 0) avg.set(p, v / BIN_MS);
+      for (const [p, v] of this.acc) if (v !== 0) avg.set(p, v / this.binMs);
       this.bins.push(avg);
       if (this.bins.length > BINS) this.bins.shift();
       this.acc.clear();
@@ -131,9 +141,9 @@ export class LiquidityTracker {
   }
 
   private prune(now: number): void {
-    if (this.hits.length && now - this.hits[0]!.at > FLOW_WINDOW_MS) this.hits = this.hits.filter((h) => now - h.at <= FLOW_WINDOW_MS);
+    if (this.hits.length && now - this.hits[0]!.at > this.flowMs) this.hits = this.hits.filter((h) => now - h.at <= this.flowMs);
     for (const [p, arr] of this.flows) {
-      const keep = arr.filter((f) => now - f.at <= FLOW_WINDOW_MS);
+      const keep = arr.filter((f) => now - f.at <= this.flowMs);
       if (keep.length) this.flows.set(p, keep);
       else this.flows.delete(p);
     }
@@ -161,7 +171,7 @@ export class LiquidityTracker {
    */
   absorb(price: number, group = 1, absorbMin = 5): 'bid' | 'ask' | undefined {
     const top = price + group - 1;
-    const recent = this.hits.filter((h) => this.now - h.at <= FLOW_WINDOW_MS);
+    const recent = this.hits.filter((h) => this.now - h.at <= this.flowMs);
     const here = recent.filter((h) => h.price >= price && h.price <= top);
     if (!here.length) return undefined;
     const sells = here.filter((h) => h.side === 'sell').reduce((a, h) => a + h.qty, 0);

@@ -16,6 +16,7 @@ import { buildSymbolTable, tickSizeOf, type SymbolTable } from '../vest/symbols.
 import type { SymbolInfo, TickerData } from '../vest/types.js';
 import { VestMarketSocket, type MarketHandlers, type SocketFactory } from '../vest/ws.js';
 import { LiquidityTracker } from './liquidity.js';
+import { NakedPocTracker } from './npoc.js';
 import { Player, Recorder, listSessions, type Rec, type Session } from './replay.js';
 import { openStore } from './idbStore.js';
 import { LiveSession, type MarketCtx } from '../live/session.js';
@@ -142,7 +143,17 @@ export class PanelModel {
   live: LiveSession;
 
   /** Resting size over time and pull/stack per price (heatmap column). */
-  readonly liq = new LiquidityTracker();
+  liq = new LiquidityTracker();
+  /** Naked POCs: each period's POC, until price trades there again (fed by every trade, warm-up included). */
+  npoc = new NakedPocTracker(15);
+
+  /** Heat · pull/stack window (minutes) and the nPOC period: a change starts them fresh. */
+  configureHeat(heatMinutes: number, npocMinutes: number): void {
+    const w = Math.max(5, heatMinutes) * 60_000;
+    if (this.liq.binMs * 30 !== w) this.liq = new LiquidityTracker(w);
+    if (this.npoc.periodMs !== Math.max(1, npocMinutes) * 60_000) this.npoc = new NakedPocTracker(npocMinutes);
+    this.changed();
+  }
   /** When the last market message arrived, and how late it was (ms) when Vest stamped it. */
   lastMsgAt: number | undefined;
   feedLagMs: number | undefined;
@@ -415,6 +426,7 @@ export class PanelModel {
     this.flips = [];
     this.bars.clear();
     this.liq.reset();
+    this.npoc.reset();
     this.trendWarm = null;
     this.trendLoading = false;
     this.trendLive = 0;
@@ -696,6 +708,7 @@ export class PanelModel {
 
   private feedTrend(timeMs: number, priceTicks: number, qty: number, isBuy: boolean): void {
     this.bars.add(timeMs, priceTicks);
+    this.npoc.onPrint(timeMs, priceTicks, qty);
     const snap = this.trend.onTrade(timeMs, priceTicks, qty, isBuy);
     if (!snap) return;
     this.trendSnap = snap;

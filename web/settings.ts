@@ -73,6 +73,11 @@ export interface Settings {
   showJournal: boolean;
   /** Ladder: heatmap of resting size (5 min) + pull/stack column. */
   showHeat: boolean;
+  /** Heat · pull/stack window in minutes: 5, 15, 30 or 60. */
+  heatMinutes: number;
+  /** Naked POC lines, and their period in minutes (5, 15, 30, 60). */
+  npocOn: boolean;
+  npocMinutes: number;
   /** Fat-finger: warn when a limit/stop is this many points from the market (0 = 4 × ATR), and when
    * the size is this many × your normal. A warning needs a second click; nothing is blocked. */
   ffFarPts: number;
@@ -151,6 +156,9 @@ export const DEFAULTS: Settings = {
   setup: '',
   showJournal: false,
   showHeat: true,
+  heatMinutes: 5,
+  npocOn: true,
+  npocMinutes: 15,
   ffFarPts: 0,
   ffSizeMult: 2,
   showBlotter: true,

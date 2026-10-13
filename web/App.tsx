@@ -411,6 +411,10 @@ export function App() {
   useEffect(() => {
     m.configureIndicators(JSON.parse(indJson) as IndicatorCfg);
   }, [m, indJson, m.info?.symbol]);
+  // Heat · pull/stack window and the nPOC period.
+  useEffect(() => {
+    m.configureHeat(s.heatMinutes ?? 5, s.npocMinutes ?? 15);
+  }, [m, s.heatMinutes, s.npocMinutes, m.info?.symbol]);
   const setInd = (patch: Partial<IndicatorCfg>) => {
     const sym = m.info?.symbol;
     if (!sym) return;
@@ -1333,6 +1337,9 @@ export function App() {
     const up = scalp.side === 'long';
     addLine(tr.t1.lineTicks + (up ? 1 : -1) * SCALP_NEAR_ATR * atrT, 'nochase', `NO CHASE ${up ? 'above' : 'below'} (ST1 ${up ? '+' : '−'}${SCALP_NEAR_ATR} ATR)`);
   }
+  // Naked POCs: each finished period's POC, drawn only while naked (gone once price trades there again).
+  const npocs = s.npocOn !== false ? m.npoc.levels : [];
+  for (const n of npocs) addLine(n.ticks, 'npoc', `nPOC ${new Date(n.periodStart).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}`);
   if (vwapT !== undefined) {
     addLine(vwapT, 'vwap', 'VWAP');
     for (const b of m.vwap.bands(ind.vwapBands)) {
@@ -1401,6 +1408,7 @@ export function App() {
     })(),
     ...(st1 ? [{ label: `ST1 ${st1.dir === 'up' ? 'support' : 'resistance'}`, ticks: st1.ticks }] : []),
     ...(vwapT !== undefined ? [{ label: 'VWAP', ticks: Math.round(vwapT) }] : []),
+    ...npocs.map((n) => ({ label: `nPOC ${new Date(n.periodStart).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}`, ticks: n.ticks })),
     ...orLevels.filter((l) => l.kind === 'high' || l.kind === 'low').map((l) => ({ label: orLabel(l), ticks: l.ticks })),
     // Nearest off-screen EXT rung on each side, so the 65/15-pt spacing from OR H/L is always readable.
     ...(() => {
@@ -1416,7 +1424,7 @@ export function App() {
     return (
       <div
         key={`${p.label}${p.ticks}`}
-        className={`pin ${p.label.startsWith('FAIL') ? 'fail' : p.label.startsWith('TP') ? 'tp' : p.label.startsWith('SL') ? 'sl' : p.label.startsWith('ST') ? (p.label.endsWith('support') ? 'st-up' : 'st-down') : p.label === 'VWAP' ? 'vwap' : p.label === 'OR H' ? 'or-h' : p.label === 'OR L' ? 'or-l' : p.label.startsWith('OR EXT') ? (p.above ? 'or-h' : 'or-l') : ''}`}
+        className={`pin ${p.label.startsWith('FAIL') ? 'fail' : p.label.startsWith('TP') ? 'tp' : p.label.startsWith('SL') ? 'sl' : p.label.startsWith('ST') ? (p.label.endsWith('support') ? 'st-up' : 'st-down') : p.label === 'VWAP' ? 'vwap' : p.label.startsWith('nPOC') ? 'npoc' : p.label === 'OR H' ? 'or-h' : p.label === 'OR L' ? 'or-l' : p.label.startsWith('OR EXT') ? (p.above ? 'or-h' : 'or-l') : ''}`}
         onClick={() => {
           detachBriefly();
           setCenter(bucketOf(p.ticks, g));
@@ -1925,6 +1933,32 @@ export function App() {
               <input type="checkbox" checked={s.weekendClose} onChange={(e) => update({ weekendClose: e.target.checked })} /> close before the weekend lock
             </label>
           </fieldset>
+          <fieldset>
+            <legend>Heat · nPOC</legend>
+            <label title="heatmap window: 30 slices across it; pull/stack and absorb count over a fifth of it (1 min at 5 min)">
+              heat window
+              <select value={s.heatMinutes ?? 5} onChange={(e) => update({ heatMinutes: Number(e.target.value) })}>
+                {[5, 15, 30, 60].map((v) => (
+                  <option key={v} value={v}>
+                    {v} min
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label title="naked POC: each period's POC drawn as a line only while naked — gone once price trades back there">
+              <input type="checkbox" checked={s.npocOn !== false} onChange={(e) => update({ npocOn: e.target.checked })} /> nPOC lines
+            </label>
+            <label>
+              period
+              <select value={s.npocMinutes ?? 15} onChange={(e) => update({ npocMinutes: Number(e.target.value) })}>
+                {[5, 15, 30, 60].map((v) => (
+                  <option key={v} value={v}>
+                    {v} min
+                  </option>
+                ))}
+              </select>
+            </label>
+          </fieldset>
           <details className="indset">
             <summary>Indicators — {m.info?.displaySymbol ?? m.info?.symbol ?? ''} (saved per instrument)</summary>
             <fieldset>
@@ -2161,7 +2195,7 @@ export function App() {
           >
             {s.showHeat && (
               <span title="resting size at each price over the last 5 minutes (left = older, brighter = more size), then pull/stack over the last minute: − = size pulled without trading, + = size stacked. ABSORB = traded a lot while its size kept coming back.">
-                heat 5m · pull/stack
+                heat {s.heatMinutes ?? 5}m · pull/stack
               </span>
             )}
             <span>buy</span>
