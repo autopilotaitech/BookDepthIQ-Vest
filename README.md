@@ -5,7 +5,9 @@ with NQ. It runs as a Chrome extension next to your logged-in Vest tab. You get 
 live Vest book, tape and volume, one-click market, limit and scale entries with TP/SL brackets (up
 to three partial targets), $-risk sizing, a stop and targets you can preview on the ladder before
 you enter, trade management (B/E, trailing stop on R or SuperTrend, close half) and one-key
-flatten. **New since 1.4: see [What's new](#whats-new).**
+flatten. A **RISK** calculator (any market, Instant account presets) sizes your trades and writes
+the plan into the ticket, and a **SuperTrend scalp read** in the header tells you when an ST1
+scalp is a pullback worth taking and when it's a chase. **New since 1.4: see [What's new](#whats-new).**
 
 **Companion:** [Vest Liquidity Scanner](https://github.com/autopilotaitech/BookDepthIQ-Vest-Scanner)
 ranks all of Vest's markets by real trading, volatility and trend vs chop, so you know which one to
@@ -200,7 +202,9 @@ and delta count from when the panel opens.
   multiples of the stop and the size follows it, so the $ risk stays the same.
 - **STP TOUCH / 1m CLOSE** (TOUCH by default): stop entries (shift-click) fire on the first trade
   through the price, or, with 1m CLOSE, only once a one-minute bar closes through it, so a spike
-  that pokes through and comes back doesn't fill you on a false break.
+  that pokes through and comes back doesn't fill you on a false break. A 1m CLOSE chip says what
+  it is waiting for: **1m CLOSE: waits for a close ≥ X** while price is short of it, and
+  **through — fires in Ns if it holds** (green) when price is through it mid-minute.
 - **setup** tags the next trade (edge fade, breakout, pullback, trend…) for the journal.
 - **PREVIEW LONG / SHORT** shows the stop and targets (◇, dashed) on the ladder before you enter,
   with their $. Nothing is sent. Drag the ◇ stop to change it: in $ risk sizing the size follows, so
@@ -344,6 +348,9 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
   floor, positions must be freshly synced from Vest, and there must be no position already open on
   the symbol. These are the same limits Vest's own ticket enforces.
 - **Optional size cap:** settings → *LIVE size cap*. 0 means off.
+- **RISK never sends an order.** *Use in DOM* only fills in the ticket (size rule, stop, target).
+  An entry over your own max leverage, or with its stop past the account's fail line, asks for a
+  second click.
 - **Panel-held stops** are the only orders that fire without a click. They live in the panel, not
   on Vest: close the window, switch instrument or go to PAPER and they are disarmed (the header
   shows **⚡ N stops armed** while any are live). Each one fires once, through the same checks as a
@@ -369,6 +376,9 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
 | Login flickers, or LIVE behaves oddly | **Close extra Vest tabs.** Keep one. |
 | Pressing LIVE seems to do nothing | Read the red text next to the PAPER/LIVE switch. It says exactly why. |
 | An order is refused | Read the red result bar under the LIVE banner. |
+| A **1m CLOSE** stop didn't fire when price went through it | Expected: it fires only when a one-minute bar **closes** at or through the price, on the first trade of the next minute. Read the chip. For a fill on the first trade through, switch the button to **STP TOUCH**. |
+| The header says **STRETCHED — don't chase** in a strong move | Price is 2+ ATR past the ST1 line; scalps from there lost on the measured NQ data. Wait for a pullback toward ST1 (**SCALP LONG/SHORT — pullback to ST1**). |
+| RISK numbers don't match my account | Paper: settings → **Instant** buttons or type your start value, drawdown and leverage. LIVE reads them from Vest. RISK → **Instant / Custom** plans any other package. |
 | Something looks wrong on Vest | Press **FLATTEN**, check Vest's own screen, then open an issue with the copied LIVE log. |
 
 ## Reporting bugs
