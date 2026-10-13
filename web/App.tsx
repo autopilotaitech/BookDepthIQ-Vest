@@ -21,7 +21,7 @@ import { watchHookStatus, watchUserToken, watchVestTabs } from './liveToken';
 import { liveOpenPnl } from '../src/live/rules';
 import { parseSplit, scaleOrders, splitTargets, type SkewDir, type Target } from '../src/live/targets';
 import type { BracketCtx } from '../src/live/session';
-import { marketLevCap } from '../src/panel/riskcalc';
+import { INSTANT_MAX_LEV, INSTANT_PACKAGES, marketLevCap } from '../src/panel/riskcalc';
 import { RiskView } from './RiskView';
 
 const ROW_PX = 22;
@@ -1272,6 +1272,8 @@ export function App() {
           curTpPts={s.bracketsOn ? (tpEff[0] ?? 0) * tick : 0}
           equity={equity}
           room={Math.max(0, ddLeft)}
+          start={live ? L.account?.initialCapital : s.startEquity}
+          floor={live ? L.floor() : floor}
           levFor={(i) => (live ? L.leverageFor(i) : marketLevCap(i.initMarginRatio, s.leverage))}
           live={live}
           select={(sym) => {
@@ -1579,6 +1581,19 @@ export function App() {
           <button className="mini" title="index-implied mid — lags Vest by ~600 ms, reference only" onClick={() => update({ showIndexRef: !s.showIndexRef })}>
             ◆ idx {s.showIndexRef ? 'on' : 'off'}
           </button>
+          <br />
+          <span className="mini-presets" title="Vest Instant funding: start value, static drawdown, 25x account max (funded.now listing, 2026-10). Sets the paper account; check your own Vest screen.">
+            Instant
+            {INSTANT_PACKAGES.map((x) => (
+              <button
+                key={x.start}
+                className={`mini ${s.startEquity === x.start && s.maxDrawdownUsd === x.dd ? 'on' : ''}`}
+                onClick={() => update({ startEquity: x.start, maxDrawdownUsd: x.dd, leverage: INSTANT_MAX_LEV })}
+              >
+                {x.label}
+              </button>
+            ))}
+          </span>
           <br />
           <label>
             start value $<input type="number" step={0.01} value={s.startEquity} onChange={(e) => update({ startEquity: Number(e.target.value) || 0 })} />

@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CME_MULTIPLIER, displayRoot } from '../src/panel/model';
-import { failPtsAtLev, inGroup, marketLevCap, riskCalc, type RiskGroup } from '../src/panel/riskcalc';
+import { failPtsAtLev, inGroup, INSTANT_MAX_LEV, INSTANT_PACKAGES, instantMatch, instantRoom, marketLevCap, riskCalc, type InstantPackage, type RiskGroup } from '../src/panel/riskcalc';
 import { fetchTickers } from '../src/vest/rest';
 import { tickSizeOf } from '../src/vest/symbols';
 import type { SymbolInfo } from '../src/vest/types';
@@ -24,6 +24,9 @@ export interface RiskViewProps {
   /** Account: equity, room to the fail floor, and the leverage the panel would use on a market. */
   equity: number;
   room: number;
+  /** The account's start value and fail floor (LIVE: Vest's initial_capital / max_drawdown_limit). */
+  start: number | undefined;
+  floor: number | undefined;
   levFor: (info: SymbolInfo) => number;
   live: boolean;
   /** Put a market on screen (true when it switched). */
@@ -44,14 +47,6 @@ const num = (v: number) => {
   return x >= 1000 ? Math.round(v).toLocaleString('en-US') : x >= 100 ? v.toFixed(1) : x >= 1 ? v.toFixed(2) : v.toFixed(4);
 };
 const pct = (v: number) => (Number.isFinite(v) ? `${(v * 100).toFixed(Math.abs(v) < 0.001 ? 3 : 2)}%` : '—');
-/** Vest Instant funding sizes and their static drawdown (funded.now listing, 2026-10; $500 = $10
- * matches the owner's own account). */
-const INSTANT = [
-  { label: '$500', bal: 500, room: 10 },
-  { label: '$5K', bal: 5000, room: 200 },
-  { label: '$10K', bal: 10000, room: 400 },
-  { label: '$25K', bal: 25000, room: 1000 },
-];
 const nice = (v: number) => (v >= 10 ? Math.round(v) : Number(v.toPrecision(2)));
 
 export function RiskView(p: RiskViewProps) {
@@ -67,8 +62,16 @@ export function RiskView(p: RiskViewProps) {
   const [entryIn, setEntryIn] = useState('');
   const [stopIn, setStopIn] = useState('');
   const [tpIn, setTpIn] = useState('');
-  // "What if" account (another package); empty = this account.
-  const [plan, setPlan] = useState<{ bal: string; room: string; max: string } | null>(null);
+  // "What if" account: an Instant package (static floor) or custom numbers; null = this account.
+  const [plan, setPlan] = useState<{ pkg?: InstantPackage; bal: string; room: string; max: string } | null>(null);
+  const mine = instantMatch(p.start, p.floor);
+  const instantPlan = (pkg: InstantPackage) => setPlan({ pkg, bal: String(pkg.start), room: String(pkg.dd), max: String(INSTANT_MAX_LEV) });
+  /** On an Instant plan the floor is static: a new balance moves the room with it. */
+  const setBal = (bal: string) => {
+    if (!plan) return;
+    const b = parseFloat(bal.replace(/,/g, ''));
+    setPlan({ ...plan, bal, room: plan.pkg && Number.isFinite(b) ? String(instantRoom(plan.pkg, b)) : plan.room });
+  };
   const [used, setUsed] = useState('');
 
   const shown = infos.filter((i) => inGroup(displayRoot(i), s.riskGroup) || i.symbol === info?.symbol);
@@ -195,7 +198,7 @@ export function RiskView(p: RiskViewProps) {
         <div>
           <b>Risk calculator</b>
           <small>
-            {plan ? 'planning another package' : p.live ? 'your LIVE Vest account' : 'your PAPER account'} · prices from Vest · never sends an order
+            {plan ? (plan.pkg ? `planning an Instant ${plan.pkg.label}` : 'planning another package') : `${p.live ? 'your LIVE Vest account' : 'your PAPER account'}${mine ? ` (Instant ${mine.label})` : ''}`} · prices from Vest · never sends an order
           </small>
         </div>
         <div className="rv-headbtns">
@@ -215,34 +218,46 @@ export function RiskView(p: RiskViewProps) {
             <span className="rv-lbl">Account</span>
             <div className="rv-seg">
               <button className={plan ? '' : 'on'} onClick={() => setPlan(null)}>
-                Mine
+                Mine{mine ? ` · Instant ${mine.label}` : ''}
               </button>
-              <button className={plan ? 'on' : ''} onClick={() => setPlan({ bal: '5000', room: '200', max: '25' })}>
-                Another package
+              <button className={plan?.pkg ? 'on' : ''} onClick={() => instantPlan(mine ?? INSTANT_PACKAGES[0])}>
+                Instant
+              </button>
+              <button className={plan && !plan.pkg ? 'on' : ''} onClick={() => setPlan({ bal: plan?.bal ?? '5000', room: plan?.room ?? '200', max: plan?.max ?? String(INSTANT_MAX_LEV) })}>
+                Custom
               </button>
             </div>
-            {plan && (
+            {plan?.pkg && (
               <div className="rv-seg" title="Vest Instant funding (no evaluation): static drawdown, 2% on $500 and 4% on the rest, as listed on funded.now (2026-10). Check your own Vest screen; every box stays editable.">
-                {INSTANT.map((x) => (
-                  <button key={x.bal} className={plan.bal === String(x.bal) && plan.room === String(x.room) ? 'on' : ''} onClick={() => setPlan({ bal: String(x.bal), room: String(x.room), max: plan.max })}>
+                {INSTANT_PACKAGES.map((x) => (
+                  <button key={x.start} className={plan.pkg === x ? 'on' : ''} onClick={() => instantPlan(x)}>
                     {x.label}
                   </button>
                 ))}
               </div>
             )}
-            {plan && <small className="rv-note">Instant: fails ${plan.room} under the start, static (the floor never moves up).</small>}
+            {plan?.pkg && (
+              <small className="rv-note">
+                Instant {plan.pkg.label}: fails at ${(plan.pkg.start - plan.pkg.dd).toLocaleString('en-US')} equity, open P&L included. Static floor: profit adds to the room, it never trails. Type your balance now to see your room.
+              </small>
+            )}
+            {!plan && mine && (
+              <small className="rv-note">
+                Instant {mine.label}: static floor ${p.floor!.toLocaleString('en-US')} · room ${p.room.toFixed(2)} = equity − floor
+              </small>
+            )}
           </div>
           <div className="rv-grid2">
             <label className="rv-field">
               <span className="rv-lbl">Balance</span>
               <span className="rv-inp">
-                $<input value={plan ? plan.bal : p.equity.toFixed(2)} disabled={!plan} onChange={(e) => plan && setPlan({ ...plan, bal: e.target.value })} />
+                $<input value={plan ? plan.bal : p.equity.toFixed(2)} disabled={!plan} onChange={(e) => setBal(e.target.value)} />
               </span>
             </label>
             <label className="rv-field">
               <span className="rv-lbl">Room to fail</span>
               <span className="rv-inp">
-                $<input value={plan ? plan.room : p.room.toFixed(2)} disabled={!plan} onChange={(e) => plan && setPlan({ ...plan, room: e.target.value })} />
+                $<input value={plan ? plan.room : p.room.toFixed(2)} disabled={!plan} onChange={(e) => plan && setPlan({ ...plan, pkg: undefined, room: e.target.value })} />
               </span>
             </label>
             <label className="rv-field">

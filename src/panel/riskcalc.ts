@@ -111,3 +111,26 @@ const CRYPTO = new Set(['BTC', 'ETH', 'SOL', 'HYPE', 'XRP']);
 export function inGroup(root: string, g: RiskGroup): boolean {
   return g === 'all' || (g === 'fut' ? FUT.has(root) : CRYPTO.has(root));
 }
+
+/** Vest Instant funding (no evaluation): start size and static drawdown — the floor is start −
+ * drawdown and never moves (funded.now listing, 2026-10; $500 / $10 matches the owner's account).
+ * Account max leverage 25x as seen on the owner's account. Every number stays editable. */
+export const INSTANT_PACKAGES = [
+  { label: '$500', start: 500, dd: 10 },
+  { label: '$5K', start: 5000, dd: 200 },
+  { label: '$10K', start: 10000, dd: 400 },
+  { label: '$25K', start: 25000, dd: 1000 },
+] as const;
+export const INSTANT_MAX_LEV = 25;
+export type InstantPackage = (typeof INSTANT_PACKAGES)[number];
+
+/** The Instant package an account's start value and fail floor match, if any. */
+export function instantMatch(start: number | undefined, floor: number | undefined): InstantPackage | undefined {
+  if (!(start! > 0) || floor === undefined) return undefined;
+  return INSTANT_PACKAGES.find((p) => Math.abs(p.start - start!) < 0.01 && Math.abs(p.start - p.dd - floor) < 0.01);
+}
+
+/** Room on an Instant account: the floor is static, so profit adds to the room 1:1. */
+export function instantRoom(pkg: InstantPackage, balance: number): number {
+  return Math.max(0, balance - (pkg.start - pkg.dd));
+}

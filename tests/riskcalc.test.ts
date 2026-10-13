@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { failPtsAtLev, inGroup, marketLevCap, riskCalc, type RiskInput } from '../src/panel/riskcalc.js';
+import { failPtsAtLev, inGroup, INSTANT_MAX_LEV, INSTANT_PACKAGES, instantMatch, instantRoom, marketLevCap, riskCalc, type RiskInput } from '../src/panel/riskcalc.js';
 
 // $500 Instant on NQ at 32,000: fails $10 down, 25x account cap, NQ fee 0.0025%.
 const base: RiskInput = { balance: 500, room: 10, levCap: 25, price: 32000, feeRate: 0, stopPts: 20, targetPts: 40, mode: 'risk', riskUsd: 5, lev: 10, sizeDecimals: 4 };
@@ -64,5 +64,26 @@ describe('helpers', () => {
     expect(inGroup('BTC', 'fut')).toBe(false);
     expect(inGroup('BTC', 'crypto')).toBe(true);
     expect(inGroup('AAPL', 'all')).toBe(true);
+  });
+});
+
+describe('Instant accounts', () => {
+  it('matches a package from start value and static floor', () => {
+    expect(instantMatch(500, 490)?.label).toBe('$500');
+    expect(instantMatch(5000, 4800)?.label).toBe('$5K');
+    expect(instantMatch(5000, 4900)).toBeUndefined();
+    expect(instantMatch(undefined, 490)).toBeUndefined();
+  });
+  it('static floor: profit adds to the room, a loss takes from it', () => {
+    const p = INSTANT_PACKAGES[0];
+    expect(instantRoom(p, 500)).toBe(10);
+    expect(instantRoom(p, 530)).toBe(40);
+    expect(instantRoom(p, 485)).toBe(0);
+  });
+  it('$5K Instant on GC: 25% of room at a 5-pt stop', () => {
+    const r = riskCalc({ ...base, balance: 5000, room: instantRoom(INSTANT_PACKAGES[1], 5000), levCap: marketLevCap('0.04', INSTANT_MAX_LEV), price: 4000, stopPts: 5, riskUsd: 50 });
+    expect(r.units).toBe(10);
+    expect(r.losersLeft).toBe(4);
+    expect(r.levUsed).toBeCloseTo(8);
   });
 });

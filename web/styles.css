@@ -619,3 +619,4 @@ b { font-weight: 600; }
 .rv-tr .barcell { display: flex; align-items: center; gap: 8px; }
 .rv-tr .barcell .rv-bar { margin: 0; }
 .rv-tr .barcell > span:last-child { min-width: 120px; text-align: right; }
+.mini-presets { display: inline-flex; gap: 4px; align-items: center; margin: 2px 0; }
