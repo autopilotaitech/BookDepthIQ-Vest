@@ -652,3 +652,12 @@ b { font-weight: 600; }
   .body { flex-direction: column; }
   .side { display: flex; width: 100%; border-left: none; }
 }
+
+/* Resize (owner, 2026-10-13): drag a ladder header divider to size that column; drag the bar between
+   the ladder and the right column to size the right column. Saved in settings. */
+.lrow.head { position: relative; }
+.lrow.head .colgrip { position: absolute; top: 0; bottom: 0; width: 9px; margin-left: -4px; cursor: col-resize; z-index: 3; }
+.lrow.head .colgrip:hover, .lrow.head .colgrip:active { background: linear-gradient(90deg, transparent 3px, var(--warn) 3px, var(--warn) 5px, transparent 5px); }
+.sidegrip { width: 5px; flex: 0 0 5px; cursor: col-resize; background: var(--line); }
+.sidegrip:hover { background: var(--warn); }
+.side { flex: 0 0 auto; }

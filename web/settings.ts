@@ -34,6 +34,10 @@ export interface Settings {
   showLog: boolean;
   /** Ladder: show the per-price delta column. */
   showDelta: boolean;
+  /** Ladder column widths (fr, by column key), set by dragging the header dividers; {} = defaults. */
+  colWidths: Record<string, number>;
+  /** Right column (tape, ticket, buttons) width in px, set by dragging its edge. */
+  sideWidth: number;
   /** Per-instrument indicator overrides (VWAP, footprint imbalances, big trades), keyed by wire symbol. */
   indicators: Record<string, Partial<IndicatorCfg>>;
   /** Dual SuperTrend lines on the ladder + header badge (BookDepthIQ's engine and defaults). */
@@ -123,6 +127,8 @@ export const DEFAULTS: Settings = {
   liveSizeCap: 0, // 0 = off: trading power is the limit, as on Vest's own ticket
   showLog: false,
   showDelta: true,
+  colWidths: {},
+  sideWidth: 380,
   indicators: {},
   showTrend: true,
   tp2Ticks: 0,

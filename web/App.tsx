@@ -25,6 +25,9 @@ import { EVAL_PACKAGES, INSTANT_MAX_LEV, INSTANT_PACKAGES, marketLevCap } from '
 import { RiskView } from './RiskView';
 import { OrderLog, type OrderLogEntry, type OrderLogStatus } from '../src/panel/orderlog';
 
+/** Default ladder column widths (fr). Dragging a header divider overrides them per column. */
+const DEFAULT_COL_FR: Record<string, number> = { heat: 1, buy: 0.5, sold: 0.62, bid: 0.9, price: 1, ask: 0.9, bought: 0.62, sell: 0.5, pnl: 0.7, profile: 1.35, delta: 0.7 };
+
 const ROW_PX = 22;
 
 function useModel(): PanelModel {
@@ -449,6 +452,26 @@ export function App() {
   // of the screen from the middle. While the pointer is over the ladder (placing or dragging an
   // order) it does not move at all unless price gets within 3 rows of the edge.
   const [overLadder, setOverLadder] = useState(false);
+  // Column widths while a header divider is dragged (px, saved as fr on release), the header row, grips.
+  const [liveCols, setLiveCols] = useState<Record<string, number> | null>(null);
+  const [liveSide, setLiveSide] = useState<number | null>(null);
+  const headRef = useRef<HTMLDivElement | null>(null);
+  const [headW, setHeadW] = useState(0);
+  // The header's width, kept by a ResizeObserver (only changes when the window or a panel resizes).
+  // (Re)attached whenever the header element changes; a no-op on other renders.
+  const headObs = useRef<{ el: HTMLDivElement; ro: ResizeObserver } | null>(null);
+  useEffect(() => {
+    const head = headRef.current;
+    if (!head || headObs.current?.el === head || typeof ResizeObserver === 'undefined') return;
+    headObs.current?.ro.disconnect();
+    const ro = new ResizeObserver((es) => {
+      const w = Math.round(es[0]?.contentRect.width ?? 0);
+      setHeadW((cur) => (cur === w ? cur : w));
+    });
+    ro.observe(head);
+    headObs.current = { el: head, ro };
+  });
+  useEffect(() => () => headObs.current?.ro.disconnect(), []);
   const holdStill = overLadder || drag !== null;
   useEffect(() => {
     if (mid === undefined) return;
@@ -1149,8 +1172,62 @@ export function App() {
   // Ladder columns: [heat · pull/stack] · buy · sold · bid liq · price · ask liq · bought · sell · [P&L] · profile · [Δ]
   // (heat moved to the far left, next to BUY — owner, 2026-10-13)
   const showPnl = pos.qty !== 0;
-  const cols = [...(s.showHeat ? ['1fr'] : []), '0.5fr', '0.62fr', '0.9fr', '1fr', '0.9fr', '0.62fr', '0.5fr', ...(showPnl ? ['0.7fr'] : []), '1.35fr', ...(s.showDelta ? ['0.7fr'] : [])].join(' ');
+  // Every column can be resized by dragging its header divider (saved in settings.colWidths, as fr).
+  const colKeys = [...(s.showHeat ? ['heat'] : []), 'buy', 'sold', 'bid', 'price', 'ask', 'bought', 'sell', ...(showPnl ? ['pnl'] : []), 'profile', ...(s.showDelta ? ['delta'] : [])];
+  const colW = (k: string) => liveCols?.[k] ?? s.colWidths?.[k] ?? DEFAULT_COL_FR[k] ?? 1;
+  const cols = colKeys.map((k) => `${colW(k)}fr`).join(' ');
   const gridStyle = { gridTemplateColumns: cols };
+  // Divider positions come from the column widths (fr shares of the header width), never from
+  // measuring the rendered cells, so there is no render → measure → render loop.
+  const frTotal = colKeys.reduce((a, k) => a + colW(k), 0);
+  let frAcc = 0;
+  const grips = colKeys.slice(0, -1).map((k) => {
+    frAcc += colW(k);
+    return headW > 0 && frTotal > 0 ? (frAcc / frTotal) * headW : 0;
+  });
+  // ── column + side resize ──
+  const startColResize = (i: number, e: React.PointerEvent) => {
+    const head = headRef.current;
+    if (!head) return;
+    e.preventDefault();
+    e.stopPropagation();
+    const kids = Array.from(head.children).slice(0, colKeys.length) as HTMLElement[];
+    const px = kids.map((k) => k.getBoundingClientRect().width);
+    const x0 = e.clientX;
+    const keys = colKeys.slice();
+    const move = (ev: PointerEvent) => {
+      const dx = ev.clientX - x0;
+      const min = 18;
+      const a = Math.min(Math.max(px[i]! + dx, min), px[i]! + px[i + 1]! - min);
+      const next: Record<string, number> = {};
+      keys.forEach((k, j) => (next[k] = +(j === i ? a : j === i + 1 ? px[i]! + px[i + 1]! - a : px[j]!).toFixed(1)));
+      setLiveCols(next);
+    };
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setLiveCols((cur) => {
+        if (cur) update({ colWidths: { ...s.colWidths, ...cur } });
+        return null;
+      });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
+  const startSideResize = (e: React.PointerEvent) => {
+    e.preventDefault();
+    const move = (ev: PointerEvent) => setLiveSide(Math.min(Math.max(window.innerWidth - ev.clientX, 240), Math.max(260, window.innerWidth - 300)));
+    const up = () => {
+      window.removeEventListener('pointermove', move);
+      window.removeEventListener('pointerup', up);
+      setLiveSide((cur) => {
+        if (cur !== null) update({ sideWidth: Math.round(cur) });
+        return null;
+      });
+    };
+    window.addEventListener('pointermove', move);
+    window.addEventListener('pointerup', up);
+  };
   // Header sparkline of session cumulative delta (last 120 trades).
   const spark = (() => {
     const h = m.cumDeltaHist.slice(-120);
@@ -2011,6 +2088,7 @@ Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warmi
           }}
         >
           <div
+            ref={headRef}
             className="lrow head"
             style={gridStyle}
             title="click = limit · shift+click = stop · chip: click cancel / drag move · wheel scroll · space recentre · F flatten · Esc cancel"
@@ -2051,6 +2129,16 @@ Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warmi
                 Δ
               </span>
             )}
+            {grips.map((x, i) => (
+              <i
+                key={`g${i}`}
+                className="colgrip"
+                style={{ left: x }}
+                title="drag to resize this column · double-click to reset every column"
+                onPointerDown={(e) => startColResize(i, e)}
+                onDoubleClick={() => update({ colWidths: {} })}
+              />
+            ))}
           </div>
           <div className="pins top">{pinned.filter((p) => p.above).map(pinRow)}</div>
           <div className="rows" ref={rowsRef}>
@@ -2226,7 +2314,8 @@ Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warmi
           )}
         </div>
 
-        <aside className="side">
+        <div className="sidegrip" title="drag to size the right column" onPointerDown={startSideResize} />
+        <aside className="side" style={{ width: liveSide ?? s.sideWidth ?? 380 }}>
           <div className="tape">
             <h4>
               {s.showLog ? 'Log' : s.showJournal ? 'Journal' : 'Vest tape'}
