@@ -629,3 +629,8 @@ b { font-weight: 600; }
 .scalpbadge.stretched { color: #fbbf24; border-color: #b45309; }
 .lrow .hl.nochase { border-top: 1px dotted #f59e0b; }
 .lrow .hltag.nochase { color: #fcd34d; border: 1px dotted #b45309; }
+.log .olog { white-space: pre-wrap; }
+.log .olog.ok { color: var(--buy, #2ec4b6); }
+.log .olog.blocked { color: #f0b429; }
+.log .olog.refused,
+.log .olog.error { color: #ff5c5c; font-weight: 600; }

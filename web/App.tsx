@@ -23,6 +23,7 @@ import { parseSplit, scaleOrders, splitTargets, type SkewDir, type Target } from
 import type { BracketCtx } from '../src/live/session';
 import { EVAL_PACKAGES, INSTANT_MAX_LEV, INSTANT_PACKAGES, marketLevCap } from '../src/panel/riskcalc';
 import { RiskView } from './RiskView';
+import { OrderLog, type OrderLogEntry, type OrderLogStatus } from '../src/panel/orderlog';
 
 const ROW_PX = 22;
 
@@ -448,7 +449,39 @@ export function App() {
     setCenter((c) => (c === null ? c : bucketOf(c, g)));
   }, [g]);
 
+  // ── Order log: every order click and what became of it, kept across reloads (copy from the log) ──
+  const olog = useRef<OrderLog | null>(null);
+  if (!olog.current) {
+    let saved: OrderLogEntry[] = [];
+    try {
+      saved = JSON.parse(localStorage.getItem('bdiqvest.orderlog.v1') ?? '[]') as OrderLogEntry[];
+    } catch {
+      /* storage unavailable: the log lasts while this window is open */
+    }
+    olog.current = new OrderLog(saved);
+  }
+  const olAdd = (status: OrderLogStatus, text: string) => {
+    olog.current!.add(status, text);
+    try {
+      localStorage.setItem('bdiqvest.orderlog.v1', JSON.stringify(olog.current!.entries));
+    } catch {
+      /* storage unavailable */
+    }
+  };
+  const olClick = (what: string) => olAdd('click', `${live ? 'LIVE' : 'PAPER'} ${what} · ${m.info?.displaySymbol ?? 'no market'}`);
+  useEffect(() => {
+    const onErr = (e: ErrorEvent) => olAdd('error', `page error: ${e.message} (${e.filename?.split('/').pop()}:${e.lineno})`);
+    const onRej = (e: PromiseRejectionEvent) => olAdd('error', `unhandled: ${String((e.reason as Error)?.stack ?? e.reason).slice(0, 400)}`);
+    window.addEventListener('error', onErr);
+    window.addEventListener('unhandledrejection', onRej);
+    return () => {
+      window.removeEventListener('error', onErr);
+      window.removeEventListener('unhandledrejection', onRej);
+    };
+  }, []);
+
   const actOuter = (r: Result) => {
+    olAdd(r.ok ? 'ok' : 'refused', r.message);
     if (live) setLiveLast(r);
     const line = `${r.ok ? '✓' : '✗'} ${r.message}`;
     m.note(line);
@@ -456,7 +489,7 @@ export function App() {
     if (live || L.log.length > 0) L.note(line);
   };
   const act = actOuter;
-  const actAsync = (p: Promise<Result>) => void p.then(act, (e: unknown) => act({ ok: false, message: String(e) }));
+  const actAsync = (p: Promise<Result>) => void p.then(act, (e: unknown) => (olAdd('error', `threw: ${(e as Error)?.stack ?? String(e)}`.slice(0, 600)), act({ ok: false, message: String(e) })));
   const paperOnly = (what: string) => act({ ok: false, message: `LIVE: ${what} is paper-only for now` });
 
   /** PAPER → LIVE: Vest login, account, canTrade, then an explicit confirm. No hotkey does this. */
@@ -625,27 +658,30 @@ export function App() {
   const avgRow = pos.qty !== 0 ? Math.round(pos.avgTicks) : undefined;
 
   const place = (side: Side, t: number, stop: boolean) => {
+    olClick(`${side.toUpperCase()} ${stop ? 'STOP' : 'LIMIT'} @ ${px(t)}`);
     if (dayBlocked() || feedBlocked()) return;
     const long = side === 'buy';
     const u = unitsFor(long, t);
+    olAdd('click', `size ${u}u (${s.sizeMode} ${s.sizeInput})`);
     const b = brFor(long, t);
     if (confirmBlocked(`${stop ? 'stp' : 'lmt'}:${side}:${t}`, checksFor(u, mid === undefined ? undefined : t - mid))) return;
     lastIntent.current = { side: long ? 'long' : 'short', px: t * tick, kind: stop ? 'stop' : 'limit', at: Date.now() };
     if (live) {
       const c = m.marketCtx();
       // Vest has no stop entry type: the panel holds the stop and fires a MARKET entry (stops.ts).
+      if (!c) return olAdd('blocked', 'no market loaded — nothing sent');
       if (stop) {
-        if (c) act(countEntry(L.armStop(side, t, u, c, b)));
+        act(countEntry(L.armStop(side, t, u, c, b)));
         return;
       }
       if (s.scaleOn) {
-        if (c) actAsync(L.enterScale(side, u, t, scaleEnd(side, t), s.scaleCount, s.scaleSkew, s.scaleDir, c).then(countEntry));
+        actAsync(L.enterScale(side, u, t, scaleEnd(side, t), s.scaleCount, s.scaleSkew, s.scaleDir, c).then(countEntry));
         return;
       }
-      if (c) actAsync(L.enterLimit(side, u, t, c, b).then(countEntry));
+      actAsync(L.enterLimit(side, u, t, c, b).then(countEntry));
       return;
     }
-    if (!broker) return;
+    if (!broker) return olAdd('blocked', 'no paper broker (no market loaded) — nothing sent');
     if (!stop && s.scaleOn) {
       const end = scaleEnd(side, t);
       const plan = scaleOrders(u, sizeDec, t, end, s.scaleCount, s.scaleSkew, s.scaleDir);
@@ -666,25 +702,30 @@ export function App() {
   /** A scale runs from the clicked price AWAY from the market: down for buys, up for sells. */
   const scaleEnd = (side: Side, t: number) => t + (side === 'buy' ? -1 : 1) * s.scaleSpanTicks;
   const market = (side: Side) => {
+    olClick(`${side.toUpperCase()} MARKET`);
     if (dayBlocked() || feedBlocked()) return;
     const long = side === 'buy';
     const u = unitsFor(long);
+    olAdd('click', `size ${u}u (${s.sizeMode} ${s.sizeInput}) · bid ${bid === undefined ? '—' : px(bid)} ask ${ask === undefined ? '—' : px(ask)}`);
     const b = brFor(long);
     if (confirmBlocked(`mkt:${side}`, checksFor(u, undefined))) return;
     const exp = long ? ask : bid;
     if (exp !== undefined) lastIntent.current = { side: long ? 'long' : 'short', px: exp * tick, kind: 'market', at: Date.now() };
     if (live) {
       const c = m.marketCtx();
-      if (c) actAsync(L.enter(side, u, c, b).then(countEntry));
+      if (!c) return olAdd('blocked', 'no market loaded — nothing sent');
+      actAsync(L.enter(side, u, c, b).then(countEntry));
       return;
     }
-    if (!broker) return;
+    if (!broker) return olAdd('blocked', 'no paper broker (no market loaded) — nothing sent');
     const p = side === 'buy' ? ask : bid;
     act(countEntry(m.guarded(side, u, p === undefined ? undefined : p * tick, () => broker.marketOrder(side, u, Date.now(), paperBr(b)))));
   };
   const reverse = () => {
+    olClick('REVERSE');
     if (live) return paperOnly('REVERSE');
-    if (!broker || !pos.qty || dayBlocked()) return;
+    if (!broker || !pos.qty) return olAdd('blocked', 'REVERSE: no position — nothing sent');
+    if (dayBlocked()) return;
     const side: Side = pos.qty > 0 ? 'sell' : 'buy';
     const p = side === 'buy' ? ask : bid;
     act(m.guarded(side, Math.abs(pos.qty) * 2, p === undefined ? undefined : p * tick, () => broker.reverse()));
@@ -725,6 +766,7 @@ export function App() {
   /** True (and says why) when a NEW entry is not allowed today. */
   const dayBlocked = (): boolean => {
     if (!limitsOn || verdict.ok) return false;
+    olAdd('blocked', `day limits: ${verdict.message}`);
     act({ ok: false, message: verdict.message });
     setNotice(verdict.message);
     return true;
@@ -771,6 +813,7 @@ export function App() {
     }
     confirmRef.current = { key, until: Date.now() + 4000 };
     const msg = `${ck.filter((x) => x.level !== 'ok').map((x) => x.text).join(' · ')} — click again within 4 s to send`;
+    olAdd('blocked', `needs a second click: ${msg}`);
     setNotice(msg);
     if (live) setLiveLast({ ok: false, message: msg });
     return true;
@@ -785,6 +828,7 @@ export function App() {
   const feedBlocked = (): boolean => {
     if (health !== 'stale') return false;
     const msg = 'market data is stale — entries are off until it is back (FLATTEN, CANCEL and KILL work)';
+    olAdd('blocked', `${msg} · feed age ${feedAge === undefined ? 'none' : `${Math.round(feedAge / 1000)} s`}, socket ${m.socketOpen ? 'open' : 'closed'}`);
     setNotice(msg);
     if (live) setLiveLast({ ok: false, message: msg });
     return true;
@@ -1266,7 +1310,16 @@ export function App() {
           r: reverse,
           e: breakevenNow,
         }
-      : {}),
+      : Object.fromEntries(
+          ['b', 's', 'r', 'e'].map((k) => [
+            k,
+            () => {
+              const msg = `hotkey ${k.toUpperCase()} ignored — hotkeys are SAFE (click HOTKEYS SAFE to arm them; going LIVE sets them back to SAFE)`;
+              olAdd('blocked', msg);
+              setNotice(msg);
+            },
+          ]),
+        )),
   };
 
   return (
@@ -2155,6 +2208,37 @@ Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warmi
             {!s.showJournal && m.tape.length === 0 && <div className="muted">waiting for trades…</div>}
           </div>
           {s.showLog && <div className="log">
+            <h4>
+              Order log{' '}
+              <button
+                className="mini"
+                title="copy every order click and what became of it, plus the LIVE request log — paste it to Claude"
+                onClick={() =>
+                  void navigator.clipboard
+                    ?.writeText(
+                      olog.current!.text([
+                        `BookDepthIQ-Vest order log · copied ${new Date().toISOString()}`,
+                        `mode ${live ? 'LIVE' : 'PAPER'} · market ${m.info?.displaySymbol ?? 'none'} · feed ${health} · Vest ${vestHealth} · hotkeys ${armed ? 'ARMED' : 'SAFE'} · size ${s.sizeMode} ${s.sizeInput} · my max lev ${s.maxLevUser}x`,
+                        '',
+                      ]) + (L.log.length ? `\n\n--- LIVE request log (oldest first) ---\n${L.log.slice().reverse().join('\n')}` : ''),
+                    )
+                    .catch(() => {})
+                }
+              >
+                copy
+              </button>{' '}
+              <button className="mini" title="clear the order log" onClick={() => (olog.current!.clear(), olAdd('ok', 'order log cleared'))}>
+                clear
+              </button>
+            </h4>
+            {olog.current!.entries
+              .slice(-30)
+              .reverse()
+              .map((e, i) => (
+                <div key={`o${i}`} className={`olog ${e.status}`}>
+                  {new Date(e.t).toLocaleTimeString([], { hour12: false })} {e.status === 'click' ? '→' : e.status === 'ok' ? '✓' : e.status === 'blocked' ? '⊘' : '✗'} {e.text}
+                </div>
+              ))}
             {live || L.log.length > 0 ? (
               <h4>
                 LIVE log{' '}
