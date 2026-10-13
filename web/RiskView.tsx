@@ -44,6 +44,14 @@ const num = (v: number) => {
   return x >= 1000 ? Math.round(v).toLocaleString('en-US') : x >= 100 ? v.toFixed(1) : x >= 1 ? v.toFixed(2) : v.toFixed(4);
 };
 const pct = (v: number) => (Number.isFinite(v) ? `${(v * 100).toFixed(Math.abs(v) < 0.001 ? 3 : 2)}%` : '—');
+/** Vest Instant funding sizes and their static drawdown (funded.now listing, 2026-10; $500 = $10
+ * matches the owner's own account). */
+const INSTANT = [
+  { label: '$500', bal: 500, room: 10 },
+  { label: '$5K', bal: 5000, room: 200 },
+  { label: '$10K', bal: 10000, room: 400 },
+  { label: '$25K', bal: 25000, room: 1000 },
+];
 const nice = (v: number) => (v >= 10 ? Math.round(v) : Number(v.toPrecision(2)));
 
 export function RiskView(p: RiskViewProps) {
@@ -209,10 +217,20 @@ export function RiskView(p: RiskViewProps) {
               <button className={plan ? '' : 'on'} onClick={() => setPlan(null)}>
                 Mine
               </button>
-              <button className={plan ? 'on' : ''} onClick={() => setPlan({ bal: String(Math.round(p.equity)), room: String(Math.round(p.room)), max: '25' })}>
+              <button className={plan ? 'on' : ''} onClick={() => setPlan({ bal: '5000', room: '200', max: '25' })}>
                 Another package
               </button>
             </div>
+            {plan && (
+              <div className="rv-seg" title="Vest Instant funding (no evaluation): static drawdown, 2% on $500 and 4% on the rest, as listed on funded.now (2026-10). Check your own Vest screen; every box stays editable.">
+                {INSTANT.map((x) => (
+                  <button key={x.bal} className={plan.bal === String(x.bal) && plan.room === String(x.room) ? 'on' : ''} onClick={() => setPlan({ bal: String(x.bal), room: String(x.room), max: plan.max })}>
+                    {x.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            {plan && <small className="rv-note">Instant: fails ${plan.room} under the start, static (the floor never moves up).</small>}
           </div>
           <div className="rv-grid2">
             <label className="rv-field">

@@ -263,7 +263,9 @@ account) and Vest's live prices. It never sends an order.
 - **Every market** table: same account and $ risk, stop at the same % of price — cap, how far a
   max-size position can move before the account fails, size, leverage, $ per point and per 1%.
   Click a row to load it.
-- **Another package** plans with a different balance, room and max leverage.
+- **Another package** plans with a different balance, room and max leverage, with **Instant
+  funding** presets ($500 / $5K / $10K / $25K; static drawdown $10 / $200 / $400 / $1,000 as
+  listed publicly; check your own Vest screen).
 - **Use in DOM** writes the plan into the ticket: size mode **% room @SL** (the $ risk follows your
   room as it changes), SL and TP points, and opens that market if it isn't on screen.
 - **My max lev**: over it, the ticket asks for a second click (nothing is blocked). The ticket also
