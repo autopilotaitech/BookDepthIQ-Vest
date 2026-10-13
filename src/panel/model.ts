@@ -64,8 +64,14 @@ export class PanelModel {
   book: Book | null = null;
   ticker: TickerData | null = null;
   tape: TapeRow[] = [];
-  /** Volume printed at each price since the panel opened (ticks -> units). */
+  /** Volume printed at each price since the profile start (ticks -> units): the indicator setting's
+   * start time, or when the panel opened / switched market; live prints, plus history if chosen. */
   volumeAt = new Map<number, number>();
+  /** The profile window start (epoch ms) and the key of the window being built. */
+  profileFrom = 0;
+  private profileKey = '';
+  private openedAt = Date.now();
+  profileLoading = false;
   /** Aggressive buys − aggressive sells per price (ticks), since the panel opened. Vest's trade
    * `side` is the taker's side. */
   deltaAt = new Map<number, number>();
@@ -249,10 +255,7 @@ export class PanelModel {
           const q = Number(msg.data.qty);
           this.lastTradeTicks = t;
           this.liq.onTrade(t, q, msg.data.side, msg.data.time);
-          this.volumeAt.set(t, (this.volumeAt.get(t) ?? 0) + q);
-          const sq = signedQty(msg.data.side, q);
-          this.deltaAt.set(t, (this.deltaAt.get(t) ?? 0) + sq);
-          this.cumDelta += sq;
+          if (msg.data.time >= this.profileFrom) this.addToProfile(t, q, msg.data.side);
           if (this.trendWarm && this.trendWarm.sym === sym) this.trendWarm.buf.push({ id: msg.data.id, time: msg.data.time, t, q, buy: msg.data.side === 'buy' });
           else this.feedTrend(msg.data.time, t, q, msg.data.side === 'buy');
           if (this.broker) {
@@ -266,8 +269,6 @@ export class PanelModel {
             const ctx = this.marketCtx();
             if (ctx) void this.live.onMarketTrade(t, ctx);
           }
-          const side = msg.data.side === 'buy' ? this.boughtAt : this.soldAt;
-          side.set(t, (side.get(t) ?? 0) + q);
           this.cumDeltaHist.push(this.cumDelta);
           if (this.cumDeltaHist.length > 400) this.cumDeltaHist.splice(0, this.cumDeltaHist.length - 400);
           this.tape.unshift({ id: msg.data.id, priceTicks: t, qty: q, side: msg.data.side, time: msg.data.time });
@@ -386,11 +387,9 @@ export class PanelModel {
     this.book = null;
     this.ticker = null;
     this.tape = [];
-    this.volumeAt.clear();
-    this.deltaAt.clear();
-    this.cumDelta = 0;
-    this.boughtAt.clear();
-    this.soldAt.clear();
+    this.clearProfile();
+    this.openedAt = this.clock();
+    this.profileKey = '';
     this.cumDeltaHist = [];
     this.trend.reset();
     this.trendSnap = this.trend.snapshot();
@@ -504,8 +503,78 @@ export class PanelModel {
     this.refreshVwapSession();
   }
 
+  // ───────────── volume profile / delta / footprint window ─────────────
+
+  private addToProfile(t: number, q: number, side: 'buy' | 'sell'): void {
+    this.volumeAt.set(t, (this.volumeAt.get(t) ?? 0) + q);
+    const sq = signedQty(side, q);
+    this.deltaAt.set(t, (this.deltaAt.get(t) ?? 0) + sq);
+    this.cumDelta += sq;
+    const m = side === 'buy' ? this.boughtAt : this.soldAt;
+    m.set(t, (m.get(t) ?? 0) + q);
+  }
+
+  private clearProfile(): void {
+    this.volumeAt.clear();
+    this.deltaAt.clear();
+    this.cumDelta = 0;
+    this.boughtAt.clear();
+    this.soldAt.clear();
+  }
+
+  /** The profile start: the latest "HH:MM" in the VWAP time zone, or when the panel opened / switched. */
+  private refreshProfileWindow(): void {
+    const sym = this.info?.symbol;
+    if (!sym) return;
+    const c = this.ind;
+    const now = this.clock();
+    const w = c.profileStart ? sessionWindow(now, c.profileStart, c.profileStart, c.vwapTz) : undefined;
+    const from = w ? w.from : this.openedAt;
+    const key = `${sym}|${from}|${c.profileHistory}`;
+    if (key === this.profileKey) return;
+    // A new window (start time, market, history on/off) starts clean: live prints from here on, plus
+    // the backfill when history is on.
+    this.profileKey = key;
+    this.profileFrom = from;
+    this.clearProfile();
+    if (c.profileHistory && from < now && !this.replay) void this.loadProfileHistory(sym, key, from, now);
+    this.changed();
+  }
+
+  /** Backfill the profile from Vest's public trades between `from` and `edge` (≤ 120 pages of 1000).
+   * Live prints keep counting from `edge` on, so nothing is counted twice. */
+  private async loadProfileHistory(sym: string, key: string, from: number, edge: number): Promise<void> {
+    this.profileLoading = true;
+    let end = edge;
+    const seen = new Set<string>();
+    try {
+      for (let page = 0; page < 120 && end >= from; page++) {
+        const rows = await fetchTradesBefore(sym, end, 1000);
+        if (key !== this.profileKey) return;
+        if (rows.length === 0) break;
+        for (const r of rows) {
+          if (seen.has(r.id) || r.time < from || r.time >= edge) continue;
+          seen.add(r.id);
+          this.addToProfile(Math.round(Number(r.price) / this.tick), Number(r.qty), r.side);
+        }
+        const oldest = rows[rows.length - 1]!.time;
+        if (oldest >= end) break;
+        end = oldest;
+        this.changed();
+      }
+    } catch (e) {
+      this.note(`profile history unavailable: ${(e as Error).message}`);
+    } finally {
+      if (key === this.profileKey) {
+        this.profileLoading = false;
+        this.changed();
+      }
+    }
+  }
+
   private onIndicatorTrade(timeMs: number, priceTicks: number, qty: number): void {
     if (this.clock() - this.vwapCheckAt > 30_000) this.refreshVwapSession();
+    if (timeMs >= this.profileFrom + 86_400_000 || !this.profileKey) this.refreshProfileWindow();
     const w = this.vwapWin;
     if (this.ind.vwapOn && w && timeMs >= w.from && timeMs <= w.to) this.vwap.add(priceTicks, qty);
     this.or?.add(timeMs, priceTicks);
@@ -516,6 +585,7 @@ export class PanelModel {
   private refreshVwapSession(): void {
     this.vwapCheckAt = this.clock();
     this.refreshOrSession();
+    this.refreshProfileWindow();
     const sym = this.info?.symbol;
     const c = this.ind;
     const w = c.vwapOn && sym ? sessionWindow(this.clock(), c.vwapStart, c.vwapEnd, c.vwapTz) : undefined;

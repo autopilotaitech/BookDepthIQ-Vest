@@ -9,6 +9,11 @@ export interface IndicatorCfg {
   vwapTz: string;
   /** Band multipliers in σ; empty = no bands. */
   vwapBands: number[];
+  // Volume profile + delta + footprint (owner, 2026-10-13): count live prints from a start time.
+  /** "HH:MM" in `vwapTz`: count from the latest one; "" = from when the panel opened / switched. */
+  profileStart: string;
+  /** Backfill from the start time with Vest's public trades. Off = live prints only. */
+  profileHistory: boolean;
   // Footprint imbalances
   fpOn: boolean;
   /** Lights a Sold/Bought cell at this diagonal ratio (3 = 3:1). */
@@ -34,6 +39,8 @@ export const DEFAULT_INDICATORS: IndicatorCfg = {
   vwapEnd: '16:00',
   vwapTz: 'America/New_York',
   vwapBands: [1, 2],
+  profileStart: '',
+  profileHistory: false,
   fpOn: true,
   fpRatio: 3,
   fpMinPct: 5,

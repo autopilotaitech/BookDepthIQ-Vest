@@ -1889,6 +1889,16 @@ Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warmi
               <label title="σ multipliers for the bands, e.g. 1, 2 (blank = none)">bands σ <input type="text" size={6} defaultValue={ind.vwapBands.join(', ')} key={`vb${m.info?.symbol}`} onBlur={(e) => setInd({ vwapBands: parseBands(e.target.value) })} /></label>
             </fieldset>
             <fieldset>
+              <legend>Volume profile · Δ · footprint</legend>
+              <label title="count prints from this time (HH:MM, same zone as VWAP); blank = from when the panel opened or switched market">
+                start <input type="text" size={5} placeholder="open" defaultValue={ind.profileStart} key={`ps${m.info?.symbol}`} onBlur={(e) => setInd({ profileStart: e.target.value.trim() })} />
+              </label>
+              <label title="off = live prints only; on = backfill from the start time with Vest's public trades">
+                <input type="checkbox" checked={ind.profileHistory} onChange={(e) => setInd({ profileHistory: e.target.checked })} /> use history
+              </label>
+              <small className="muted">{m.profileLoading ? 'loading history…' : `from ${new Date(m.profileFrom).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}`}</small>
+            </fieldset>
+            <fieldset>
               <legend>
                 <label><input type="checkbox" checked={ind.fpOn} onChange={(e) => setInd({ fpOn: e.target.checked })} /> Footprint imbalances</label>
               </legend>
