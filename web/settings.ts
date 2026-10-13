@@ -32,6 +32,8 @@ export interface Settings {
   /** Side panel: show the PAPER/LIVE log under the tape. Off = tape only (the result bar under
    * the LIVE banner still shows every action). */
   showLog: boolean;
+  /** The ticket settings under the tape; false = tape and order buttons only. */
+  showTicket: boolean;
   /** Ladder: show the per-price delta column. */
   showDelta: boolean;
   /** Ladder column widths (fr, by column key), set by dragging the header dividers; {} = defaults. */
@@ -126,6 +128,7 @@ export const DEFAULTS: Settings = {
   leverage: 25,
   liveSizeCap: 0, // 0 = off: trading power is the limit, as on Vest's own ticket
   showLog: false,
+  showTicket: true,
   showDelta: true,
   colWidths: {},
   sideWidth: 380,

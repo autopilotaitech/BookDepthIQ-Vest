@@ -49,6 +49,51 @@ const fmtK = (v: number) => (v >= 1e6 ? `$${(v / 1e6).toFixed(2)}M` : v >= 1e3 ?
  * natural unit; ticks stay internal because orders must land on the venue's 0.25 grid. Keeps its
  * own text while typing (so "1." or "1.2" are not snapped mid-entry) and snaps to the grid on blur.
  */
+/** Segmented control: one row of equal buttons, exactly one on (flight-panel ticket). */
+function Seg<T extends string>(props: { value: T; options: Array<[T, string]>; onChange: (v: T) => void; title?: string }) {
+  return (
+    <div className="seg" title={props.title}>
+      {props.options.map(([v, label]) => (
+        <button key={v} className={v === props.value ? 'on' : ''} onClick={() => props.onChange(v)}>
+          {label}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/** Pill toggle: outline when off, filled accent when on. */
+function Pill(props: { on: boolean; onClick: () => void; children: React.ReactNode; title?: string; warn?: boolean }) {
+  return (
+    <button className={`pill ${props.on ? (props.warn ? 'on warn' : 'on') : ''}`} title={props.title} onClick={props.onClick}>
+      {props.children}
+    </button>
+  );
+}
+
+/** A card: small-caps title, then its content. */
+function Card(props: { title: string; children: React.ReactNode; right?: React.ReactNode }) {
+  return (
+    <div className="card">
+      <div className="ctitle">
+        {props.title}
+        {props.right}
+      </div>
+      {props.children}
+    </div>
+  );
+}
+
+/** A labelled field: the label small above the control. */
+function Fld(props: { label: string; children: React.ReactNode; title?: string; dim?: boolean }) {
+  return (
+    <label className={`fld ${props.dim ? 'dim' : ''}`} title={props.title}>
+      <span>{props.label}</span>
+      {props.children}
+    </label>
+  );
+}
+
 function PointsInput(props: { ticks: number; tick: number; signed?: boolean; onTicks: (t: number) => void }) {
   const { ticks, tick, signed, onTicks } = props;
   const dec = tickDecimals(tick);
@@ -2332,6 +2377,9 @@ Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warmi
               <button className={`mini ${s.showJournal ? 'on' : ''}`} title="trade journal: every trade with its setup, risk, result and R (click again for the tape)" onClick={() => update({ showJournal: !s.showJournal, showLog: false })}>
                 journal
               </button>
+              <button className={`mini ${s.showTicket !== false ? 'on' : ''}`} title="show or hide the ticket settings (hidden = tape and order buttons only)" onClick={() => update({ showTicket: s.showTicket === false })}>
+                ticket
+              </button>
               <button className={`mini ${s.showHeat ? 'on' : ''}`} title="heatmap + pull/stack column on the ladder" onClick={() => update({ showHeat: !s.showHeat })}>
                 heat
               </button>
@@ -2420,339 +2468,317 @@ Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warmi
                 </div>
               ))}
           </div>}
-        <section className="ticket">
-          <div className="fields">
-            <label>
-              Size
-              <select value={s.sizeMode} onChange={(e) => update({ sizeMode: e.target.value as SizeMode })}>
-                <option value="units">units</option>
-                <option value="usd">USD</option>
-                <option value="risk">$ risk @SL</option>
-                <option value="room" title="risk this % of the room left to the fail floor (set on the Risk page)">% room @SL</option>
-              </select>
-              <input
-                type="number"
-                min={0}
-                step={s.sizeMode === 'units' ? 0.01 : 1}
-                value={s.sizeInput}
-                onChange={(e) => update({ sizeInput: Math.max(0, Number(e.target.value) || 0) })}
-              />
-            </label>
-            {[0.25, 0.5, 0.75, 1].map((f) => (
-              <button key={f} className="mini" disabled={!maxU} onClick={() => update({ sizeMode: 'units', sizeInput: Math.floor(maxU * f * 10 ** sizeDec) / 10 ** sizeDec })}>
-                {f * 100}%
-              </button>
-            ))}
-            {s.riskPresets.map((v) => (
-              <button
-                key={`r${v}`}
-                className={`mini ${s.sizeMode === 'risk' && s.sizeInput === v ? 'on' : ''}`}
-                title={`size so a stop-out costs $${v}, fees included`}
-                onClick={() => update({ sizeMode: 'risk', sizeInput: v })}
+        <section className={`ticket ${s.showTicket === false ? 'collapsed' : ''}`}>
+          <div className="tscroll" style={s.showTicket === false ? { display: 'none' } : undefined}>
+          <Card title="READOUT">
+            {(() => {
+              const winUsd = s.bracketsOn && units > 0 && tpPts > 0 ? units * tpPts - (nextRisk !== undefined ? nextRisk - units * slEff * tick : 0) : undefined;
+              const rr = winUsd !== undefined && nextRisk ? winUsd / nextRisk : undefined;
+              const roomPct = nextRisk !== undefined && ddLeft > 0 ? nextRisk / ddLeft : undefined;
+              const losers = nextRisk !== undefined && nextRisk > 0 && ddLeft > 0 ? Math.floor(ddLeft / nextRisk + 1e-9) : undefined;
+              const tile = (label: string, value: string, cls = '') => (
+                <div className="tile">
+                  <span>{label}</span>
+                  <b className={cls}>{value}</b>
+                </div>
+              );
+              return (
+                <div className="tiles">
+                  {tile('SIZE', `${units.toFixed(sizeDec)}u`, units > 0 ? '' : 'warn')}
+                  {tile('RISK', nextRisk !== undefined ? `$${nextRisk.toFixed(0)}` : 'no SL', nextRisk !== undefined && nextRisk > ddLeft ? 'neg' : 'ask')}
+                  {tile('WIN @TP1', winUsd !== undefined ? `$${winUsd.toFixed(0)}` : '—', 'pos')}
+                  {tile('R:R', rr !== undefined ? rr.toFixed(2) : '—', rr === undefined ? '' : rr >= 1.5 ? 'pos' : rr >= 1 ? '' : 'warn')}
+                  {tile('OF ROOM', roomPct !== undefined ? `${(roomPct * 100).toFixed(0)}%` : '—', roomPct === undefined ? '' : roomPct > 0.5 ? 'neg' : roomPct > 0.25 ? 'warn' : '')}
+                  {tile('LOSERS LEFT', losers !== undefined ? String(losers) : '—', losers !== undefined && losers <= 2 ? 'neg' : '')}
+                </div>
+              );
+            })()}
+          {limitsOn && !verdict.ok && (
+              <div className="lockbar">
+                <b>{dayLimitHit(limits, daySt, equity) ? `DAY LOCKED · ${fmtUsd(dayPnl)} of −$${limits.lossUsd}` : 'ENTRIES PAUSED'}</b> {verdict.message}. FLATTEN, CANCEL, CLOSE HALF, stop moves and KILL keep working.
+              </div>
+            )}
+            {notice && (
+              <div className="noticebar" onClick={() => setNotice(null)} title="click to dismiss">
+                {notice}
+              </div>
+            )}
+            {(() => {
+              const ck = checksFor(units, undefined);
+              return ck.length ? (
+                <div className="checks" title="fat-finger checks for the next order: warnings only — one click sends">
+                  {ck.map((c, i) => (
+                    <i key={i} className={c.level}>
+                      {c.level === 'ok' ? '✓' : c.level === 'warn' ? '!' : '✗'} {c.text}
+                    </i>
+                  ))}
+                </div>
+              ) : null;
+            })()}
+            <div className="pretrade">
+              <span>
+                = <b>{units.toFixed(sizeDec)}u</b> <small>{eq(units)}</small>
+              </span>
+              {swingMode && riskSizing && (
+                <span title="swing stops differ by side, so the size does too">
+                  L <b>{unitsFor(true).toFixed(sizeDec)}u</b> / S <b>{unitsFor(false).toFixed(sizeDec)}u</b>
+                </span>
+              )}
+              <span>{refPx ? `${fmtK(units * refPx)} notional` : ''}</span>
+              {refPx && units > 0 && (
+                <span title="leverage after this entry, counting what is already open">
+                  → <b>{leverageUsed(openNotional + units * refPx, equity).toFixed(1)}x</b> lev
+                </span>
+              )}
+              <span>${units.toFixed(2)}/pt</span>
+              <span className={nextRisk !== undefined && nextRisk > ddLeft ? 'neg' : ''} title="loss at the stop, taker fee both ways included">
+                {nextRisk !== undefined ? `risk $${nextRisk.toFixed(2)} at SL` : 'no SL'}
+              </span>
+              {nextRisk !== undefined && nextRisk > 0 && ddLeft > 0 && (
+                <span className={nextRisk / ddLeft > 0.5 ? 'neg' : ''} title="share of the room to the fail floor this stop-out uses, and how many losers like it the room holds">
+                  {((nextRisk / ddLeft) * 100).toFixed(0)}% of room · {Math.floor(ddLeft / nextRisk + 1e-9)} losers left
+                </span>
+              )}
+              {limitsOn && verdict.roomUsd !== undefined && nextRisk !== undefined && nextRisk > verdict.roomUsd && verdict.roomUsd > 0 && (
+                <span className="neg">
+                  only ${verdict.roomUsd.toFixed(2)} left today{' '}
+                  <button className="mini" onClick={() => update({ sizeMode: 'risk', sizeInput: Math.floor(verdict.roomUsd! * 100) / 100 })}>
+                    size to fit
+                  </button>
+                </span>
+              )}
+              {refPx && units > 0 && (
+                <span>
+                  fail <span className="pos">L {(refPx - (equity - floor) / units).toFixed(dec)}</span> /{' '}
+                  <span className="neg">S {(refPx + (equity - floor) / units).toFixed(dec)}</span>
+                </span>
+              )}
+              {s.bracketsOn && slEff > 0 && spread !== undefined && slEff <= spread && (
+                <span className="neg" title="The stop is measured from your fill. A buy fills at the ask, so a stop closer than the spread is already at or through the bid. In this paper sim it triggers on the bid; Vest's own trigger price (bid, mid or mark) is not yet confirmed.">
+                  SL {(slEff * tick).toFixed(dec)} ≤ spread {(spread * tick).toFixed(dec)} — stops out on entry
+                </span>
+              )}
+              {atrMode && s.bracketsOn && !slEff && <span className="neg">ATR still warming up — entries go WITHOUT a stop</span>}
+              {riskSizing && !slEff && !atrMode && <span className="neg">set SL points to size by risk</span>}
+              {s.bracketsOn && multiTp && units > 0 && (() => {
+                const sp = splitTargets(units, sizeDec, targets);
+                return sp.ok ? (
+                  <span title="each target closes its own part of the position">
+                    {sp.legs.map((l, i) => `TP${i + 1} ${l.qty}u +$${(l.qty * l.ticks * tick).toFixed(2)}`).join(' · ')}
+                  </span>
+                ) : (
+                  <span className="neg">{sp.message}</span>
+                );
+              })()}
+              {s.scaleOn && units > 0 && (() => {
+                const sc = scaleOrders(units, sizeDec, 0, s.scaleSpanTicks, s.scaleCount, s.scaleSkew, s.scaleDir);
+                return sc.ok ? (
+                  <span title="click a ladder price: limits from there, further from the market">
+                    scale {sc.legs.map((l) => l.qty).join(' / ')}u every {((s.scaleSpanTicks / (s.scaleCount - 1)) * tick).toFixed(dec)} pts · no TP/SL
+                  </span>
+                ) : (
+                  <span className="neg">scale: {sc.message}</span>
+                );
+              })()}
+              {units > maxU + 1e-9 && maxU > 0 && <span className="neg">over max size</span>}
+              {live && s.liveSizeCap > 0 && units > s.liveSizeCap + 1e-12 && <span className="neg">over LIVE cap {s.liveSizeCap}u</span>}
+            </div>
+            <div className="coststrip">
+              <span
+                className={`gate ${gate ?? 'learning'}`}
+                title={
+                  gate
+                    ? `spread vs this market's last 5 min: cheap = at or below the median (${((m.spreadWin.quantile(0.5) ?? 0) * tick).toFixed(dec)}), wide = above p90 (${((p90 ?? 0) * tick).toFixed(dec)})`
+                    : 'collecting a few minutes of spread history before judging'
+                }
               >
-                ${v}
-              </button>
-            ))}
-            {rMode ? (
-              <label className={s.bracketsOn ? '' : 'dim'} title="TP1 as a multiple of the stop distance (R)">
-                TP1 R
-                <input type="number" min={0} step={0.5} value={s.tpR[0] ?? 0} onChange={(e) => update({ tpR: [Math.max(0, Number(e.target.value) || 0), s.tpR[1] ?? 0, s.tpR[2] ?? 0] })} />
-                <small className="pos">{tpEff[0] ? `${(tpEff[0] * tick).toFixed(dec)} pts` : ''}</small>
-              </label>
-            ) : (
-              <label className={s.bracketsOn ? '' : 'dim'}>
-                TP pts
-                <PointsInput ticks={s.tpTicks} tick={tick} onTicks={(t) => update({ tpTicks: t })} />
-                <small className="pos">{s.tpTicks && units ? `+$${(units * s.tpTicks * tick).toFixed(2)}` : ''}</small>
-              </label>
-            )}
-            {atrMode ? (
-              <label className={s.bracketsOn ? '' : 'dim'} title="stop = ATR of the 60 s candles (the ST1 engine) × this">
-                SL ATR×
-                <input type="number" min={0.25} step={0.25} value={s.atrMult} onChange={(e) => update({ atrMult: Math.max(0.25, Number(e.target.value) || 1) })} />
-                <small className="neg">{slEff ? `${(slEff * tick).toFixed(dec)} pts${slOverride !== null ? ' (dragged)' : ''}` : 'ATR warming…'}</small>
-                {slOverride !== null && (
-                  <button className="mini" onClick={() => setSlOverride(null)} title="back to ATR × multiple">
-                    snap back
+                <i />
+                spread {spread === undefined ? '—' : (spread * tick).toFixed(dec)} · {gate === 'cheap' ? 'CHEAP to cross' : gate === 'normal' ? 'normal' : gate === 'wide' ? 'WIDE — wait or use a limit' : 'learning…'}
+              </span>
+              {rtBuy && (
+                <span className={`fillest ${rtBuy.entry.slipTicks >= 0.05 || !rtBuy.entry.complete ? 'slip' : ''}`} title={`buy ${units} walks ${rtBuy.entry.levels} ask level(s), worst ${(rtBuy.entry.worstTicks * tick).toFixed(dec)}`}>
+                  BUY ≈ <b>{fillTxt(rtBuy)}</b> {!rtBuy.entry.complete ? '· book too thin' : rtBuy.entry.slipTicks >= 0.05 ? `· slip ${rtBuy.entry.slipTicks.toFixed(1)}t` : '· no slip'}
+                </span>
+              )}
+              {rtSell && (
+                <span className={`fillest ${rtSell.entry.slipTicks >= 0.05 || !rtSell.entry.complete ? 'slip' : ''}`} title={`sell ${units} walks ${rtSell.entry.levels} bid level(s), worst ${(rtSell.entry.worstTicks * tick).toFixed(dec)}`}>
+                  SELL ≈ <b>{fillTxt(rtSell)}</b> {!rtSell.entry.complete ? '· book too thin' : rtSell.entry.slipTicks >= 0.05 ? `· slip ${rtSell.entry.slipTicks.toFixed(1)}t` : '· no slip'}
+                </span>
+              )}
+              {breakEven !== undefined && (
+                <span
+                  className={ddLeft > 0 && breakEven * units > 0.1 * ddLeft ? 'neg' : ''}
+                  title="points price must move your way to cover crossing the spread both ways, slippage and both taker fees"
+                >
+                  break-even <b>{breakEven.toFixed(2)} pts</b> (${(breakEven * units).toFixed(2)}{ddLeft > 0 ? ` · ${(((breakEven * units) / ddLeft) * 100).toFixed(0)}% of DD left` : ''})
+                </span>
+              )}
+              {edge !== undefined && (
+                <span className={`edge ${edge < 1.5 ? 'bad' : edge < 2 ? 'meh' : 'good'}`} title="your TP distance as a multiple of the all-in break-even move. Under 2× the trade mostly pays the spread.">
+                  TP {tpPts.toFixed(dec)} pts = <b>{edge.toFixed(1)}×</b> cost
+                </span>
+              )}
+            </div>
+          </Card>
+
+          <Card title="SIZE">
+            <Seg
+              value={s.sizeMode}
+              options={[['units', 'UNITS'], ['usd', 'USD'], ['risk', '$ RISK'], ['room', '% ROOM']]}
+              onChange={(v) => update({ sizeMode: v as SizeMode })}
+              title="how size is set: units, USD notional, $ lost at the stop (fees in), or % of the room left to the fail floor"
+            />
+            <div className="frow">
+              <Fld label="VALUE">
+                <input type="number" min={0} step={s.sizeMode === 'units' ? 0.01 : 1} value={s.sizeInput} onChange={(e) => update({ sizeInput: Math.max(0, Number(e.target.value) || 0) })} />
+              </Fld>
+              <div className="chips">
+                {[0.25, 0.5, 0.75, 1].map((f) => (
+                  <button key={f} disabled={!maxU} title={`${f * 100}% of the max size`} onClick={() => update({ sizeMode: 'units', sizeInput: Math.floor(maxU * f * 10 ** sizeDec) / 10 ** sizeDec })}>
+                    {f * 100}%
                   </button>
-                )}
-              </label>
-            ) : swingMode ? (
-              <label className={s.bracketsOn ? '' : 'dim'} title="swing stop: a long's goes under the LOW of the last N minutes, a short's over the HIGH, plus the buffer. The size follows in $ risk sizing.">
-                SL swing
-                <input type="number" min={1} step={1} value={s.swingMins} onChange={(e) => update({ swingMins: Math.max(1, Math.round(Number(e.target.value) || 1)) })} />
-                min +
-                <PointsInput ticks={s.swingBufTicks} tick={tick} onTicks={(t) => update({ swingBufTicks: t })} />
-                <span title="the stop is never closer than this (0 = no floor): an entry at the swing high/low would otherwise get a stop inside the noise">≥</span>
-                <PointsInput ticks={s.swingMinTicks} tick={tick} onTicks={(t) => update({ swingMinTicks: t })} />
-                <small className="neg">
-                  {slFor(true) || slFor(false) ? `L ${(slFor(true) * tick).toFixed(dec)} / S ${(slFor(false) * tick).toFixed(dec)} pts${slOverride !== null ? ' (dragged)' : ''}` : 'no range yet'}
-                </small>
-                {slOverride !== null && (
-                  <button className="mini" onClick={() => setSlOverride(null)} title="back to the swing">
-                    snap back
-                  </button>
-                )}
-              </label>
-            ) : (
-              <label className={s.bracketsOn ? '' : 'dim'}>
-                SL pts
-                <PointsInput ticks={s.slTicks} tick={tick} onTicks={(t) => update({ slTicks: t })} />
-                <small className="neg">{s.slTicks && units ? `−$${(units * s.slTicks * tick).toFixed(2)}` : ''}</small>
-              </label>
-            )}
-            <button
-              className={`toggle ${rMode ? 'on' : ''}`}
-              title="stop distance: your points, ATR × multiple, or beyond the swing high/low (targets in R for ATR and swing)"
-              onClick={() => {
-                setSlOverride(null);
-                update({ stopMode: s.stopMode === 'pts' ? 'atr' : s.stopMode === 'atr' ? 'swing' : 'pts' });
-              }}
-            >
-              STOP {s.stopMode === 'atr' ? 'ATR' : s.stopMode === 'swing' ? 'SWING' : 'PTS'}
-            </button>
-            <label>
-              B/E + pts
-              <PointsInput ticks={s.beOffset} tick={tick} signed onTicks={(t) => update({ beOffset: t })} />
-            </label>
-            <button className={`toggle ${s.bracketsOn ? 'on' : ''}`} onClick={() => update({ bracketsOn: !s.bracketsOn })}>
-              BRACKET {s.bracketsOn ? 'ON' : 'OFF'}
-            </button>
-            <button
-              className={`toggle ${armed ? 'armed' : ''}`}
-              title="Armed: B buy mkt · S sell mkt · R reverse · E break-even. Always on: F flatten · Esc cancel all."
-              onClick={() => setArmed(!armed)}
-            >
-              HOTKEYS {armed ? 'ARMED' : 'SAFE'}
-            </button>
-          </div>
-          <div className="fields more">
-            {[1, 2].map((i) =>
-              rMode ? (
-                <label key={i} className={s.bracketsOn ? '' : 'dim'} title={`TP${i + 1} in R (0 = off)`}>
-                  TP{i + 1} R
-                  <input
-                    type="number"
-                    min={0}
-                    step={0.5}
-                    value={s.tpR[i] ?? 0}
-                    onChange={(e) => {
-                      const tpR = [s.tpR[0] ?? 0, s.tpR[1] ?? 0, s.tpR[2] ?? 0];
-                      tpR[i] = Math.max(0, Number(e.target.value) || 0);
-                      update({ tpR });
-                    }}
-                  />
-                </label>
-              ) : (
-                <label key={i} className={s.bracketsOn ? '' : 'dim'} title={`target ${i + 1}, further than the one before (0 = off)`}>
-                  TP{i + 1}
-                  <PointsInput ticks={i === 1 ? s.tp2Ticks : s.tp3Ticks} tick={tick} onTicks={(t) => update(i === 1 ? { tp2Ticks: t } : { tp3Ticks: t })} />
-                </label>
-              ),
-            )}
-            {multiTp && (
-              <>
-                <label title="share of the size at TP1 / TP2 / TP3, in %">
-                  split
-                  <input type="text" className="wide" defaultValue={s.tpSplit} onBlur={(e) => update({ tpSplit: e.target.value.trim() })} />
-                </label>
-                <label title="when TP1 fills, the panel moves your stop to entry ± the B/E offset — once, while this window is open (in LIVE it sends that stop move without a click)">
-                  <input type="checkbox" checked={s.beAfterTp1} onChange={(e) => update({ beAfterTp1: e.target.checked })} /> B/E after TP1
-                </label>
-              </>
-            )}
-            <button
-              className={`toggle ${s.scaleOn ? 'on' : ''}`}
-              title="SCALE ON: a ladder click places several limits from that price, further away from the market, like Vest's Scale ticket. Shift-click is still a stop. Scale orders carry no TP/SL (Vest's own don't)."
-              onClick={() => update({ scaleOn: !s.scaleOn })}
-            >
-              SCALE {s.scaleOn ? 'ON' : 'OFF'}
-            </button>
-            {s.scaleOn && (
-              <>
-                <label title="number of limits, 2–10 (Vest's own limits)">
-                  ×
-                  <input type="number" min={2} max={10} step={1} value={s.scaleCount} onChange={(e) => update({ scaleCount: Math.round(Number(e.target.value) || 2) })} />
-                </label>
-                <label title="from the clicked price to the last limit, away from the market">
-                  over pts
-                  <PointsInput ticks={s.scaleSpanTicks} tick={tick} onTicks={(t) => update({ scaleSpanTicks: t })} />
-                </label>
-                <label title="1 = even; higher puts bigger sizes toward the chosen end">
-                  skew
-                  <input type="number" min={1} step={0.5} value={s.scaleSkew} onChange={(e) => update({ scaleSkew: Math.max(1, Number(e.target.value) || 1) })} />
-                </label>
-                <select value={s.scaleDir} onChange={(e) => update({ scaleDir: e.target.value as SkewDir })} title="where the biggest sizes go: Start = the clicked price, End = furthest from the market">
-                  <option value="start">bigger at start</option>
-                  <option value="even">even</option>
-                  <option value="end">bigger at end</option>
-                </select>
-              </>
-            )}
-            <label title="setup tag saved with the trade in the journal">
-              setup
-              <select value={s.setup} onChange={(e) => update({ setup: e.target.value })}>
-                {['', 'edge fade', 'breakout', 'pullback', 'trend', 'other'].map((v) => (
-                  <option key={v} value={v}>
-                    {v || '—'}
-                  </option>
                 ))}
-              </select>
-            </label>
-            <button
-              className={`toggle ${s.preview !== 'off' ? 'on' : ''}`}
-              title="show the would-be stop and targets on the ladder before you enter (nothing is sent); drag the stop to change it"
-              onClick={() => update({ preview: s.preview === 'off' ? 'long' : s.preview === 'long' ? 'short' : 'off' })}
-            >
-              PREVIEW {s.preview === 'off' ? 'OFF' : s.preview === 'long' ? 'LONG' : 'SHORT'}
-            </button>
-            <label title="trailing stop, moved by the panel without a click (keep this window open), only ever your way. From xR: once price is that many × your risk in your favour, the stop follows the best price one risk behind. ST1 / ST2: the stop sits on that SuperTrend line while it is on your side.">
-              trail
-              <select
+                {s.riskPresets.map((v) => (
+                  <button key={`r${v}`} className={s.sizeMode === 'risk' && s.sizeInput === v ? 'on' : ''} title={`size so a stop-out costs $${v}, fees included`} onClick={() => update({ sizeMode: 'risk', sizeInput: v })}>
+                    ${v}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </Card>
+
+          <Card title="STOP" right={<Pill on={s.bracketsOn} onClick={() => update({ bracketsOn: !s.bracketsOn })} title="attach your TP/SL to every entry">BRACKET</Pill>}>
+            <Seg
+              value={s.stopMode}
+              options={[['pts', 'POINTS'], ['atr', 'ATR'], ['swing', 'SWING']]}
+              onChange={(v) => {
+                setSlOverride(null);
+                update({ stopMode: v });
+              }}
+              title="stop distance: your points, ATR × multiple, or beyond the swing high/low (targets in R for ATR and swing)"
+            />
+            <div className="frow">
+              {atrMode ? (
+                <Fld label="ATR ×" title="stop = ATR of the 60 s candles (the ST1 engine) × this" dim={!s.bracketsOn}>
+                  <input type="number" min={0.25} step={0.25} value={s.atrMult} onChange={(e) => update({ atrMult: Math.max(0.25, Number(e.target.value) || 1) })} />
+                </Fld>
+              ) : swingMode ? (
+                <>
+                  <Fld label="MINUTES" title="swing stop: a long's goes under the LOW of the last N minutes, a short's over the HIGH, plus the buffer" dim={!s.bracketsOn}>
+                    <input type="number" min={1} step={1} value={s.swingMins} onChange={(e) => update({ swingMins: Math.max(1, Math.round(Number(e.target.value) || 1)) })} />
+                  </Fld>
+                  <Fld label="BUFFER PTS" dim={!s.bracketsOn}>
+                    <PointsInput ticks={s.swingBufTicks} tick={tick} onTicks={(t) => update({ swingBufTicks: t })} />
+                  </Fld>
+                  <Fld label="MIN PTS" title="the stop is never closer than this (0 = no floor)" dim={!s.bracketsOn}>
+                    <PointsInput ticks={s.swingMinTicks} tick={tick} onTicks={(t) => update({ swingMinTicks: t })} />
+                  </Fld>
+                </>
+              ) : (
+                <Fld label="SL POINTS" dim={!s.bracketsOn}>
+                  <PointsInput ticks={s.slTicks} tick={tick} onTicks={(t) => update({ slTicks: t })} />
+                </Fld>
+              )}
+              <div className="fnote neg">
+                {atrMode
+                  ? slEff ? `${(slEff * tick).toFixed(dec)} pts${slOverride !== null ? ' (dragged)' : ''}` : 'ATR warming…'
+                  : swingMode
+                    ? slFor(true) || slFor(false) ? `L ${(slFor(true) * tick).toFixed(dec)} / S ${(slFor(false) * tick).toFixed(dec)} pts${slOverride !== null ? ' (dragged)' : ''}` : 'no range yet'
+                    : s.slTicks && units ? `−$${(units * s.slTicks * tick).toFixed(2)}` : ''}
+                {slOverride !== null && rMode && (
+                  <button className="mini" onClick={() => setSlOverride(null)} title="back to the computed stop">
+                    snap back
+                  </button>
+                )}
+              </div>
+            </div>
+          </Card>
+
+          <Card title="TARGETS">
+            <div className="frow">
+              {[0, 1, 2].map((i) =>
+                rMode ? (
+                  <Fld key={i} label={`TP${i + 1} R`} title={i ? `TP${i + 1} in R (0 = off)` : 'TP1 as a multiple of the stop distance (R)'} dim={!s.bracketsOn}>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.5}
+                      value={s.tpR[i] ?? 0}
+                      onChange={(e) => {
+                        const tpR = [s.tpR[0] ?? 0, s.tpR[1] ?? 0, s.tpR[2] ?? 0];
+                        tpR[i] = Math.max(0, Number(e.target.value) || 0);
+                        update({ tpR });
+                      }}
+                    />
+                  </Fld>
+                ) : (
+                  <Fld key={i} label={`TP${i + 1} PTS`} title={i ? `target ${i + 1}, further than the one before (0 = off)` : undefined} dim={!s.bracketsOn}>
+                    <PointsInput ticks={i === 0 ? s.tpTicks : i === 1 ? s.tp2Ticks : s.tp3Ticks} tick={tick} onTicks={(t) => update(i === 0 ? { tpTicks: t } : i === 1 ? { tp2Ticks: t } : { tp3Ticks: t })} />
+                  </Fld>
+                ),
+              )}
+              {multiTp && (
+                <Fld label="SPLIT %" title="share of the size at TP1 / TP2 / TP3, in %">
+                  <input type="text" className="wide" defaultValue={s.tpSplit} onBlur={(e) => update({ tpSplit: e.target.value.trim() })} />
+                </Fld>
+              )}
+            </div>
+            <div className="fnote pos">{tpEff[0] && units ? `TP1 ${(tpEff[0] * tick).toFixed(dec)} pts · +$${(units * tpEff[0] * tick).toFixed(2)}` : ''}</div>
+          </Card>
+
+          <Card title="MANAGE">
+            <div className="frow">
+              <Fld label="B/E + PTS">
+                <PointsInput ticks={s.beOffset} tick={tick} signed onTicks={(t) => update({ beOffset: t })} />
+              </Fld>
+              {multiTp && (
+                <Pill on={s.beAfterTp1} onClick={() => update({ beAfterTp1: !s.beAfterTp1 })} title="when TP1 fills, the panel moves your stop to entry ± the B/E offset — once, while this window is open (in LIVE it sends that stop move without a click)">
+                  B/E AFTER TP1
+                </Pill>
+              )}
+              <Pill on={s.stopGuard} onClick={() => update({ stopGuard: !s.stopGuard })} title="LIVE: if a Vest position loses its stop, the panel puts it back at the last price and shows a red warning (keep this window open)">
+                STOP GUARD
+              </Pill>
+            </div>
+            <Fld label="TRAIL" title="trailing stop, moved by the panel without a click (keep this window open), only ever your way. From xR: the stop follows the best price one risk behind. ST1 / ST2: the stop sits on that SuperTrend line while it is on your side.">
+              <Seg
                 value={s.trailLine ? `st${s.trailLine}` : String(s.trailStartR)}
-                onChange={(e) => {
-                  const v = e.target.value;
+                options={[['0', 'OFF'], ['1', '1R'], ['1.5', '1.5R'], ['2', '2R'], ['st1', 'ST1'], ['st2', 'ST2']]}
+                onChange={(v) => {
                   if (v === 'st1' || v === 'st2') update({ trailLine: v === 'st1' ? 1 : 2, trailStartR: 0 });
                   else update({ trailLine: 0, trailStartR: Number(v) });
                 }}
-              >
-                <option value="0">off</option>
-                <option value="1">from 1R</option>
-                <option value="1.5">from 1.5R</option>
-                <option value="2">from 2R</option>
-                <option value="st1">on ST1 (60 s)</option>
-                <option value="st2">on ST2 (15 s)</option>
-              </select>
-            </label>
-            <label title="LIVE: if a Vest position loses its stop, the panel puts it back at the last price and shows a red warning (keep this window open)">
-              <input type="checkbox" checked={s.stopGuard} onChange={(e) => update({ stopGuard: e.target.checked })} /> stop guard
-            </label>
-          </div>
-          {limitsOn && !verdict.ok && (
-            <div className="lockbar">
-              <b>{dayLimitHit(limits, daySt, equity) ? `DAY LOCKED · ${fmtUsd(dayPnl)} of −$${limits.lossUsd}` : 'ENTRIES PAUSED'}</b> {verdict.message}. FLATTEN, CANCEL, CLOSE HALF, stop moves and KILL keep working.
+              />
+            </Fld>
+          </Card>
+
+          <Card title="ENTRY" right={<Pill on={armed} warn onClick={() => setArmed(!armed)} title="Armed: B buy mkt · S sell mkt · R reverse · E break-even. Always on: F flatten · Esc cancel all.">{armed ? 'HOTKEYS ARMED' : 'HOTKEYS SAFE'}</Pill>}>
+            <Fld label="SETUP" title="setup tag saved with the trade in the journal">
+              <Seg value={s.setup} options={[['', '—'], ['pullback', 'PULLBACK'], ['breakout', 'BREAKOUT'], ['edge fade', 'FADE'], ['trend', 'TREND'], ['other', 'OTHER']]} onChange={(v) => update({ setup: v })} />
+            </Fld>
+            <Fld label="PREVIEW" title="show the would-be stop and targets on the ladder before you enter (nothing is sent); drag the stop to change it">
+              <Seg value={s.preview} options={[['off', 'OFF'], ['long', 'LONG'], ['short', 'SHORT']]} onChange={(v) => update({ preview: v })} />
+            </Fld>
+            <div className="frow">
+              <Pill on={s.scaleOn} onClick={() => update({ scaleOn: !s.scaleOn })} title="SCALE ON: a ladder click places several limits from that price, further away from the market, like Vest's Scale ticket. Shift-click is still a stop. Scale orders carry no TP/SL (Vest's own don't).">
+                SCALE
+              </Pill>
+              {s.scaleOn && (
+                <>
+                  <Fld label="ORDERS" title="number of limits, 2–10 (Vest's own limits)">
+                    <input type="number" min={2} max={10} step={1} value={s.scaleCount} onChange={(e) => update({ scaleCount: Math.round(Number(e.target.value) || 2) })} />
+                  </Fld>
+                  <Fld label="OVER PTS" title="from the clicked price to the last limit, away from the market">
+                    <PointsInput ticks={s.scaleSpanTicks} tick={tick} onTicks={(t) => update({ scaleSpanTicks: t })} />
+                  </Fld>
+                  <Fld label="SKEW" title="1 = even; higher puts bigger sizes toward the chosen end">
+                    <input type="number" min={1} step={0.5} value={s.scaleSkew} onChange={(e) => update({ scaleSkew: Math.max(1, Number(e.target.value) || 1) })} />
+                  </Fld>
+                </>
+              )}
             </div>
-          )}
-          {notice && (
-            <div className="noticebar" onClick={() => setNotice(null)} title="click to dismiss">
-              {notice}
-            </div>
-          )}
-          {(() => {
-            const ck = checksFor(units, undefined);
-            return ck.length ? (
-              <div className="checks" title="fat-finger checks for the next order: warnings only — one click sends">
-                {ck.map((c, i) => (
-                  <i key={i} className={c.level}>
-                    {c.level === 'ok' ? '✓' : c.level === 'warn' ? '!' : '✗'} {c.text}
-                  </i>
-                ))}
-              </div>
-            ) : null;
-          })()}
-          <div className="pretrade">
-            <span>
-              = <b>{units.toFixed(sizeDec)}u</b> <small>{eq(units)}</small>
-            </span>
-            {swingMode && riskSizing && (
-              <span title="swing stops differ by side, so the size does too">
-                L <b>{unitsFor(true).toFixed(sizeDec)}u</b> / S <b>{unitsFor(false).toFixed(sizeDec)}u</b>
-              </span>
-            )}
-            <span>{refPx ? `${fmtK(units * refPx)} notional` : ''}</span>
-            {refPx && units > 0 && (
-              <span title="leverage after this entry, counting what is already open">
-                → <b>{leverageUsed(openNotional + units * refPx, equity).toFixed(1)}x</b> lev
-              </span>
-            )}
-            <span>${units.toFixed(2)}/pt</span>
-            <span className={nextRisk !== undefined && nextRisk > ddLeft ? 'neg' : ''} title="loss at the stop, taker fee both ways included">
-              {nextRisk !== undefined ? `risk $${nextRisk.toFixed(2)} at SL` : 'no SL'}
-            </span>
-            {nextRisk !== undefined && nextRisk > 0 && ddLeft > 0 && (
-              <span className={nextRisk / ddLeft > 0.5 ? 'neg' : ''} title="share of the room to the fail floor this stop-out uses, and how many losers like it the room holds">
-                {((nextRisk / ddLeft) * 100).toFixed(0)}% of room · {Math.floor(ddLeft / nextRisk + 1e-9)} losers left
-              </span>
-            )}
-            {limitsOn && verdict.roomUsd !== undefined && nextRisk !== undefined && nextRisk > verdict.roomUsd && verdict.roomUsd > 0 && (
-              <span className="neg">
-                only ${verdict.roomUsd.toFixed(2)} left today{' '}
-                <button className="mini" onClick={() => update({ sizeMode: 'risk', sizeInput: Math.floor(verdict.roomUsd! * 100) / 100 })}>
-                  size to fit
-                </button>
-              </span>
-            )}
-            {refPx && units > 0 && (
-              <span>
-                fail <span className="pos">L {(refPx - (equity - floor) / units).toFixed(dec)}</span> /{' '}
-                <span className="neg">S {(refPx + (equity - floor) / units).toFixed(dec)}</span>
-              </span>
-            )}
-            {s.bracketsOn && slEff > 0 && spread !== undefined && slEff <= spread && (
-              <span className="neg" title="The stop is measured from your fill. A buy fills at the ask, so a stop closer than the spread is already at or through the bid. In this paper sim it triggers on the bid; Vest's own trigger price (bid, mid or mark) is not yet confirmed.">
-                SL {(slEff * tick).toFixed(dec)} ≤ spread {(spread * tick).toFixed(dec)} — stops out on entry
-              </span>
-            )}
-            {atrMode && s.bracketsOn && !slEff && <span className="neg">ATR still warming up — entries go WITHOUT a stop</span>}
-            {riskSizing && !slEff && !atrMode && <span className="neg">set SL points to size by risk</span>}
-            {s.bracketsOn && multiTp && units > 0 && (() => {
-              const sp = splitTargets(units, sizeDec, targets);
-              return sp.ok ? (
-                <span title="each target closes its own part of the position">
-                  {sp.legs.map((l, i) => `TP${i + 1} ${l.qty}u +$${(l.qty * l.ticks * tick).toFixed(2)}`).join(' · ')}
-                </span>
-              ) : (
-                <span className="neg">{sp.message}</span>
-              );
-            })()}
-            {s.scaleOn && units > 0 && (() => {
-              const sc = scaleOrders(units, sizeDec, 0, s.scaleSpanTicks, s.scaleCount, s.scaleSkew, s.scaleDir);
-              return sc.ok ? (
-                <span title="click a ladder price: limits from there, further from the market">
-                  scale {sc.legs.map((l) => l.qty).join(' / ')}u every {((s.scaleSpanTicks / (s.scaleCount - 1)) * tick).toFixed(dec)} pts · no TP/SL
-                </span>
-              ) : (
-                <span className="neg">scale: {sc.message}</span>
-              );
-            })()}
-            {units > maxU + 1e-9 && maxU > 0 && <span className="neg">over max size</span>}
-            {live && s.liveSizeCap > 0 && units > s.liveSizeCap + 1e-12 && <span className="neg">over LIVE cap {s.liveSizeCap}u</span>}
-          </div>
-          <div className="coststrip">
-            <span
-              className={`gate ${gate ?? 'learning'}`}
-              title={
-                gate
-                  ? `spread vs this market's last 5 min: cheap = at or below the median (${((m.spreadWin.quantile(0.5) ?? 0) * tick).toFixed(dec)}), wide = above p90 (${((p90 ?? 0) * tick).toFixed(dec)})`
-                  : 'collecting a few minutes of spread history before judging'
-              }
-            >
-              <i />
-              spread {spread === undefined ? '—' : (spread * tick).toFixed(dec)} · {gate === 'cheap' ? 'CHEAP to cross' : gate === 'normal' ? 'normal' : gate === 'wide' ? 'WIDE — wait or use a limit' : 'learning…'}
-            </span>
-            {rtBuy && (
-              <span className={`fillest ${rtBuy.entry.slipTicks >= 0.05 || !rtBuy.entry.complete ? 'slip' : ''}`} title={`buy ${units} walks ${rtBuy.entry.levels} ask level(s), worst ${(rtBuy.entry.worstTicks * tick).toFixed(dec)}`}>
-                BUY ≈ <b>{fillTxt(rtBuy)}</b> {!rtBuy.entry.complete ? '· book too thin' : rtBuy.entry.slipTicks >= 0.05 ? `· slip ${rtBuy.entry.slipTicks.toFixed(1)}t` : '· no slip'}
-              </span>
-            )}
-            {rtSell && (
-              <span className={`fillest ${rtSell.entry.slipTicks >= 0.05 || !rtSell.entry.complete ? 'slip' : ''}`} title={`sell ${units} walks ${rtSell.entry.levels} bid level(s), worst ${(rtSell.entry.worstTicks * tick).toFixed(dec)}`}>
-                SELL ≈ <b>{fillTxt(rtSell)}</b> {!rtSell.entry.complete ? '· book too thin' : rtSell.entry.slipTicks >= 0.05 ? `· slip ${rtSell.entry.slipTicks.toFixed(1)}t` : '· no slip'}
-              </span>
-            )}
-            {breakEven !== undefined && (
-              <span
-                className={ddLeft > 0 && breakEven * units > 0.1 * ddLeft ? 'neg' : ''}
-                title="points price must move your way to cover crossing the spread both ways, slippage and both taker fees"
-              >
-                break-even <b>{breakEven.toFixed(2)} pts</b> (${(breakEven * units).toFixed(2)}{ddLeft > 0 ? ` · ${(((breakEven * units) / ddLeft) * 100).toFixed(0)}% of DD left` : ''})
-              </span>
-            )}
-            {edge !== undefined && (
-              <span className={`edge ${edge < 1.5 ? 'bad' : edge < 2 ? 'meh' : 'good'}`} title="your TP distance as a multiple of the all-in break-even move. Under 2× the trade mostly pays the spread.">
-                TP {tpPts.toFixed(dec)} pts = <b>{edge.toFixed(1)}×</b> cost
-              </span>
-            )}
+            {s.scaleOn && <Seg value={s.scaleDir} options={[['start', 'BIG START'], ['even', 'EVEN'], ['end', 'BIG END']]} onChange={(v) => update({ scaleDir: v as SkewDir })} title="where the biggest sizes go" />}
+          </Card>
           </div>
           <div className="buttons">
             <button
