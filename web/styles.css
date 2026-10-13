@@ -635,3 +635,20 @@ b { font-weight: 600; }
 .log .olog.refused,
 .log .olog.error { color: #ff5c5c; font-weight: 600; }
 .buttons button.notready { opacity: 0.55; }
+
+/* Layout (owner, 2026-10-13): the ladder runs the full height; the right column holds the tape (journal /
+   log swap in), then the ticket, then the order buttons in three columns. */
+.side { width: 380px; border-left: 1px solid var(--line); }
+.side .tape { flex: 1; min-height: 120px; display: flex; flex-direction: column; overflow: hidden; }
+.side .tape > .journal { overflow: auto; }
+.side .log { height: auto; flex: 1; min-height: 120px; border-top: none; }
+.side .tape:has(+ .log) { flex: 0 0 auto; min-height: 0; }
+.side .ticket { border-top: 1px solid var(--line); border-bottom: none; padding: 6px; max-height: 62vh; overflow: auto; flex: 0 0 auto; }
+.side .ticket .fields { gap: 6px; }
+.side .buttons { grid-template-columns: repeat(6, 1fr); gap: 4px; }
+.side .buttons .span2 { grid-column: span 2; }
+.side .buttons .span3 { grid-column: span 3; }
+@media (max-width: 640px) {
+  .body { flex-direction: column; }
+  .side { display: flex; width: 100%; border-left: none; }
+}

@@ -343,6 +343,7 @@ the LIVE request log, on your clipboard — paste that into a bug report.
 
 | Version | What changed |
 |---|---|
+| next | **Layout:** the ladder runs the full height. The right column has the tape (**journal** / **log** swap in; click again for the tape), then the ticket, then the buttons in three columns: **BUY MKT · SELL MKT · FLATTEN**, **REVERSE · CANCEL ALL**, **B/E · CLOSE HALF**. |
 | 1.9.3 | BUY/SELL never go silently dead: a click that can't send says why (size 0, no book, waiting on Vest), and a Vest request gives up after 12 s instead of leaving entries off. **reset** button on RISK (back to the defaults). Journal matches Vest: LIVE rows take Vest's own entry, exit, P&L and funding from its position history (auto after each close, on going LIVE, and **sync Vest**); Vest trades the journal missed are added; net after fees + funding line. |
 | 1.9.2 | Orders go on ONE click again: fat-finger checks and a stale feed warn instead of blocking. **Order log** (click *log*): every order click, hotkey, warning, block reason, Vest's answer and any error, kept across reloads, with **copy**. Hotkeys on SAFE say so instead of doing nothing. RISK: **Funding** (Silver/Gold/Platinum evaluation, 6% static floor, daily 3%/4%/none) next to Instant; Funding presets in paper settings. |
 | 1.9.1 | Stop entries fire on **touch** only: the trade that reaches your stop price fires it (PAPER too, from the tape). The 1m CLOSE option is gone. |
