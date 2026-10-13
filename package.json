@@ -1,6 +1,6 @@
 {
   "name": "bookdepthiq-vest",
-  "version": "1.9.2",
+  "version": "1.9.3",
   "private": true,
   "type": "module",
   "description": "Scalping execution panel for Vest Markets perps. Separate from BookDepthIQ.",
