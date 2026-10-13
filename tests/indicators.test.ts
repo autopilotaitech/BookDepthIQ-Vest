@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { DEFAULT_INDICATORS, indicatorsFor, parseBands, stackZones } from '../src/panel/indicators.js';
+import { DEFAULT_INDICATORS, indicatorsAll, indicatorsFor, migrateIndicators, parseBands, stackZones } from '../src/panel/indicators.js';
 import { Vwap, parseHhmm, sessionWindow } from '../src/panel/vwap.js';
 
 describe('VWAP', () => {
@@ -51,6 +51,15 @@ describe('indicator settings', () => {
     expect(indicatorsFor(all, 'NDX-USD-PERP')).toMatchObject({ bigMin: 5, fpRatio: 2.5, vwapStart: '09:30' });
     expect(indicatorsFor(all, 'SPX-USD-PERP')).toEqual(DEFAULT_INDICATORS);
     expect(indicatorsFor(undefined, undefined)).toEqual(DEFAULT_INDICATORS);
+  });
+
+  it('one set for every instrument; old per-symbol sets migrate from the current symbol', () => {
+    expect(indicatorsAll({ bigMin: 5 })).toMatchObject({ bigMin: 5, vwapStart: '09:30' });
+    expect(indicatorsAll(undefined)).toEqual(DEFAULT_INDICATORS);
+    const old = { 'BTC-PERP': { bigMin: 1 }, 'NDX-USD-PERP': { bigMin: 5 } };
+    expect(migrateIndicators(old, 'NDX-USD-PERP')).toEqual({ bigMin: 5 });
+    expect(migrateIndicators(old, 'ETH-PERP')).toEqual({ bigMin: 1 });
+    expect(migrateIndicators(undefined, 'X')).toEqual({});
   });
 
   it('band list parsing', () => {

@@ -1,4 +1,4 @@
-import type { IndicatorCfg } from '../src/panel/indicators';
+import { migrateIndicators, type IndicatorCfg } from '../src/panel/indicators';
 import type { SkewDir } from '../src/live/targets';
 // Per-viewer UI settings in localStorage. Every read/write is guarded: storage can be missing or
 // throw (private window, blocked site data) and the panel must still work on defaults.
@@ -40,7 +40,10 @@ export interface Settings {
   colWidths: Record<string, number>;
   /** Right column (tape, ticket, buttons) width in px, set by dragging its edge. */
   sideWidth: number;
-  /** Per-instrument indicator overrides (VWAP, footprint imbalances, big trades), keyed by wire symbol. */
+  /** Indicator overrides (VWAP, profile, footprint imbalances, big trades, opening range): ONE set for
+   * every instrument (owner, 2026-10-13). */
+  ind: Partial<IndicatorCfg>;
+  /** Legacy per-symbol sets; read once by loadSettings into `ind`, then emptied. */
   indicators: Record<string, Partial<IndicatorCfg>>;
   /** Dual SuperTrend lines on the ladder + header badge (BookDepthIQ's engine and defaults). */
   showTrend: boolean;
@@ -137,6 +140,7 @@ export const DEFAULTS: Settings = {
   showDelta: true,
   colWidths: {},
   sideWidth: 380,
+  ind: {},
   indicators: {},
   showTrend: true,
   tp2Ticks: 0,
@@ -179,9 +183,14 @@ export const DEFAULTS: Settings = {
   maxLevUser: 0,
 };
 
-/** The old 0.01 default was a first-release cap the owner turned off (2026-10-08). */
-function migrate(s: Settings): Settings {
-  return s.liveSizeCap === 0.01 ? { ...s, liveSizeCap: 0 } : s;
+/** The old 0.01 default was a first-release cap the owner turned off (2026-10-08). Per-symbol
+ * indicator sets become the one set (2026-10-13). */
+export function migrate(s: Settings): Settings {
+  let o = s.liveSizeCap === 0.01 ? { ...s, liveSizeCap: 0 } : s;
+  if (o.indicators && Object.keys(o.indicators).length > 0) {
+    o = { ...o, ind: Object.keys(o.ind ?? {}).length > 0 ? o.ind : migrateIndicators(o.indicators, o.symbol), indicators: {} };
+  }
+  return o;
 }
 
 export function loadSettings(): Settings {

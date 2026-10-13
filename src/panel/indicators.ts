@@ -54,9 +54,23 @@ export const DEFAULT_INDICATORS: IndicatorCfg = {
   orMid: false,
 };
 
-/** Settings for `symbol`: its saved overrides on top of the defaults. */
+/** Settings for `symbol`: its saved overrides on top of the defaults. Kept for reading old settings. */
 export function indicatorsFor(all: Record<string, Partial<IndicatorCfg>> | undefined, symbol: string | undefined): IndicatorCfg {
   return { ...DEFAULT_INDICATORS, ...((symbol && all?.[symbol]) || {}) };
+}
+
+/** The one indicator set (owner, 2026-10-13: one set for every instrument), on top of the defaults. */
+export function indicatorsAll(saved: Partial<IndicatorCfg> | undefined): IndicatorCfg {
+  return { ...DEFAULT_INDICATORS, ...(saved ?? {}) };
+}
+
+/**
+ * Old settings kept indicators per wire symbol. Adopt the current symbol's set (else any saved one)
+ * as the single set, so nothing the user tuned is lost.
+ */
+export function migrateIndicators(perSymbol: Record<string, Partial<IndicatorCfg>> | undefined, symbol: string): Partial<IndicatorCfg> {
+  const all = perSymbol ?? {};
+  return all[symbol] ?? Object.values(all)[0] ?? {};
 }
 
 /** "1, 2" → [1, 2] (positive numbers only, at most 3). */

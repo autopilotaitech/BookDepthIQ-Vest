@@ -13,7 +13,7 @@ import { aggregate, bucketOf, offscreen, rowPnlUsd, stepGroup } from '../src/pan
 import { loadSettings, saveSettings, type Settings, type SizeMode } from './settings';
 import { edgeRatio, roundTrip, spreadGate } from '../src/panel/cost';
 import { bidShare, imbalances, walls } from '../src/panel/footprint';
-import { indicatorsFor, parseBands, stackZones, type IndicatorCfg } from '../src/panel/indicators';
+import { indicatorsAll, parseBands, stackZones, type IndicatorCfg } from '../src/panel/indicators';
 import { orLabel, orRoot } from '../src/panel/paxor';
 import { fundingUsdPerHour, nextSettlement } from '../src/panel/funding';
 import { buildProfile } from '../src/panel/profile';
@@ -405,8 +405,8 @@ export function App() {
 
   // ── LIVE (LIVE-ORDERS-SPEC §4). Mode is not a setting: every launch starts in PAPER. ──
   const L = m.live;
-  // Per-instrument indicator settings (VWAP, imbalances, big trades); the model re-anchors VWAP on change.
-  const ind = indicatorsFor(s.indicators, m.info?.symbol);
+  // Indicator settings, one set for every instrument; the model re-anchors VWAP on change.
+  const ind = indicatorsAll(s.ind);
   const indJson = JSON.stringify(ind);
   useEffect(() => {
     m.configureIndicators(JSON.parse(indJson) as IndicatorCfg);
@@ -415,11 +415,7 @@ export function App() {
   useEffect(() => {
     m.configureHeat(s.heatMinutes ?? 5, s.npocMinutes ?? 15);
   }, [m, s.heatMinutes, s.npocMinutes, m.info?.symbol]);
-  const setInd = (patch: Partial<IndicatorCfg>) => {
-    const sym = m.info?.symbol;
-    if (!sym) return;
-    update({ indicators: { ...s.indicators, [sym]: { ...(s.indicators[sym] ?? {}), ...patch } } });
-  };
+  const setInd = (patch: Partial<IndicatorCfg>) => update({ ind: { ...s.ind, ...patch } });
   const live = L.mode === 'live';
   // Two sources for the Vest login: the relay → storage.session chain, and the panel reading open
   // Vest tabs itself. Either one is enough.
@@ -1960,7 +1956,7 @@ export function App() {
             </label>
           </fieldset>
           <details className="indset">
-            <summary>Indicators — {m.info?.displaySymbol ?? m.info?.symbol ?? ''} (saved per instrument)</summary>
+            <summary>Indicators (one set for every instrument)</summary>
             <fieldset>
               <legend>
                 <label><input type="checkbox" checked={ind.vwapOn} onChange={(e) => setInd({ vwapOn: e.target.checked })} /> VWAP</label>
