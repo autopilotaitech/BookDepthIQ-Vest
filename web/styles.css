@@ -634,3 +634,4 @@ b { font-weight: 600; }
 .log .olog.blocked { color: #f0b429; }
 .log .olog.refused,
 .log .olog.error { color: #ff5c5c; font-weight: 600; }
+.buttons button.notready { opacity: 0.55; }

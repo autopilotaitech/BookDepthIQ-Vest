@@ -156,7 +156,8 @@ export class PanelModel {
 
   constructor(private readonly factory?: SocketFactory) {
     this.live = new LiveSession({
-      fetch: ((url, init) => globalThis.fetch(url, init)) as FetchLike,
+      // 12 s cap: a request Vest never answers must not leave the panel waiting (and entries off) forever.
+      fetch: ((url, init) => globalThis.fetch(url, { ...(init as RequestInit), signal: AbortSignal.timeout(12_000) })) as FetchLike,
       uuid: () => crypto.randomUUID(),
       now: () => Date.now(),
       onChange: () => this.changed(),

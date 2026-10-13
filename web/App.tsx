@@ -678,6 +678,8 @@ export function App() {
     const long = side === 'buy';
     const u = unitsFor(long, t);
     olAdd('click', `size ${u}u (${s.sizeMode} ${s.sizeInput})`);
+    if (!(u > 0)) return notReady(`size is 0 — check Size (${s.sizeMode} ${s.sizeInput})`);
+    if (live && L.busy) return notReady('still waiting for Vest to answer the last request (gives up after 12 s)');
     const b = brFor(long, t);
     if (confirmBlocked(`${stop ? 'stp' : 'lmt'}:${side}:${t}`, checksFor(u, mid === undefined ? undefined : t - mid))) return;
     lastIntent.current = { side: long ? 'long' : 'short', px: t * tick, kind: stop ? 'stop' : 'limit', at: Date.now() };
@@ -716,12 +718,31 @@ export function App() {
   };
   /** A scale runs from the clicked price AWAY from the market: down for buys, up for sells. */
   const scaleEnd = (side: Side, t: number) => t + (side === 'buy' ? -1 : 1) * s.scaleSpanTicks;
+  /** Why an entry can't go right now (undefined = ready). Shown on the click, never a silent no-op. */
+  const entryNotReady = (forUnits = units): string | undefined => {
+    if (!(forUnits > 0)) return `size is 0 — check Size (${s.sizeMode} ${s.sizeInput})${s.sizeMode === 'room' || s.sizeMode === 'risk' ? ' and SL pts' : ''}`;
+    if (live) {
+      if (bid === undefined || ask === undefined) return 'no Vest book yet for this market';
+      if (L.busy) return 'still waiting for Vest to answer the last request (gives up after 12 s)';
+      return undefined;
+    }
+    if (!broker?.hasBook) return 'no book yet for this market';
+    if (m.failed) return 'paper account FAILED — reset it in settings';
+    return undefined;
+  };
+  const notReady = (why: string) => {
+    olAdd('blocked', why);
+    setNotice(why);
+    if (live) setLiveLast({ ok: false, message: why });
+  };
   const market = (side: Side) => {
     olClick(`${side.toUpperCase()} MARKET`);
     if (dayBlocked() || feedBlocked()) return;
     const long = side === 'buy';
     const u = unitsFor(long);
     olAdd('click', `size ${u}u (${s.sizeMode} ${s.sizeInput}) · bid ${bid === undefined ? '—' : px(bid)} ask ${ask === undefined ? '—' : px(ask)}`);
+    const why = entryNotReady(u);
+    if (why) return notReady(why);
     const b = brFor(long);
     if (confirmBlocked(`mkt:${side}`, checksFor(u, undefined))) return;
     const exp = long ? ask : bid;
@@ -2637,16 +2658,18 @@ Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warmi
         </div>
         <div className="buttons">
           <button
-            className="buy"
-            disabled={live ? bid === undefined || ask === undefined || units <= 0 || L.busy : !broker?.hasBook || m.failed || units <= 0}
+            className={`buy ${entryNotReady() ? 'notready' : ''}`}
+            title={entryNotReady() ?? undefined}
+            aria-disabled={!!entryNotReady()}
             onClick={() => market('buy')}
           >
             BUY MKT
             {rtBuy && <small>≈ {fillTxt(rtBuy)}</small>}
           </button>
           <button
-            className="sell"
-            disabled={live ? bid === undefined || ask === undefined || units <= 0 || L.busy : !broker?.hasBook || m.failed || units <= 0}
+            className={`sell ${entryNotReady() ? 'notready' : ''}`}
+            title={entryNotReady() ?? undefined}
+            aria-disabled={!!entryNotReady()}
             onClick={() => market('sell')}
           >
             SELL MKT
