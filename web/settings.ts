@@ -43,6 +43,8 @@ export interface Settings {
   /** Indicator overrides (VWAP, profile, footprint imbalances, big trades, opening range): ONE set for
    * every instrument (owner, 2026-10-13). */
   ind: Partial<IndicatorCfg>;
+  /** Colour scheme: token → #rrggbb, only where it differs from the default (web/theme.ts). */
+  colors: Record<string, string>;
   /** Legacy per-symbol sets; read once by loadSettings into `ind`, then emptied. */
   indicators: Record<string, Partial<IndicatorCfg>>;
   /** Dual SuperTrend lines on the ladder + header badge (BookDepthIQ's engine and defaults). */
@@ -141,6 +143,7 @@ export const DEFAULTS: Settings = {
   colWidths: {},
   sideWidth: 380,
   ind: {},
+  colors: {},
   indicators: {},
   showTrend: true,
   tp2Ticks: 0,

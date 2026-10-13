@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { bestAsk, bestBid } from '../src/book/book';
 import { PanelModel } from '../src/panel/model';
 import { formatPrice, tickDecimals, type BracketSettings, type Result, type Side, type WorkingOrder } from '../src/sim/paper';
@@ -11,6 +11,7 @@ import { weekendCloseAt } from '../src/live/manage';
 import { fetchMarketHours } from '../src/vest/rest';
 import { aggregate, bucketOf, offscreen, rowPnlUsd, stepGroup } from '../src/panel/ladderMath';
 import { loadSettings, saveSettings, type Settings, type SizeMode } from './settings';
+import { applyTheme } from './theme';
 import { edgeRatio, roundTrip, spreadGate } from '../src/panel/cost';
 import { bidShare, imbalances, walls } from '../src/panel/footprint';
 import { indicatorsAll, parseBands, stackZones, type IndicatorCfg } from '../src/panel/indicators';
@@ -294,6 +295,9 @@ export function App() {
       return next;
     });
   }, []);
+  // Colour scheme (Settings › Colours): the user's overrides on top of the panel's own colours, live.
+  const colorsJson = JSON.stringify(s.colors ?? {});
+  useLayoutEffect(() => applyTheme(JSON.parse(colorsJson) as Record<string, string>), [colorsJson]);
 
   // Start the market socket ONCE with the saved symbol; stop it only when the panel unmounts.
   // (It used to depend on s.symbol, so switching instruments ran the cleanup, stopped the socket,
@@ -2314,8 +2318,8 @@ export function App() {
                             if (a <= 1e-9) return <i key={i} />;
                             const wall = heatMed > 0 && a >= 3 * heatMed;
                             const x = Math.min(1, a / heatP90);
-                            const rgb = v > 0 ? '34,211,238' : '251,146,60';
-                            return <i key={i} style={{ background: wall ? 'rgba(253,230,138,0.95)' : `rgba(${rgb},${(0.15 + 0.85 * Math.pow(x, 0.8)).toFixed(2)})` }} />;
+                            const rgb = v > 0 ? 'var(--heat-bid-rgb)' : 'var(--heat-ask-rgb)';
+                            return <i key={i} style={{ background: wall ? 'rgba(var(--heat-hot-rgb), 0.95)' : `rgba(${rgb},${(0.15 + 0.85 * Math.pow(x, 0.8)).toFixed(2)})` }} />;
                           })}
                         </span>
                         <em className={fl.net > 0 ? 'stk' : fl.net < 0 ? 'pul' : ''} title={`last minute: pulled ${fmtVol(fl.pulled)} · stacked ${fmtVol(fl.stacked)} · traded ${fmtVol(fl.traded)}`}>
@@ -2330,7 +2334,7 @@ export function App() {
                 <span className={`fp sold ${imb.sell.has(t) ? 'imb' : ''} ${imb.sellStack.has(t) ? 'stack' : ''}`}>{so ? <em className="fpn">{fmtVol(so)}</em> : ''}</span>
                 <span
                   className="size bid liq"
-                  style={b !== undefined ? { background: `rgba(34, 211, 238, ${(0.06 + 0.66 * (b / maxSize)).toFixed(2)})` } : undefined}
+                  style={b !== undefined ? { background: `rgba(var(--bid-rgb), ${(0.06 + 0.66 * (b / maxSize)).toFixed(2)})` } : undefined}
                  
                   onClick={(e) => place('buy', t, e.shiftKey)}
                 >
@@ -2354,7 +2358,7 @@ export function App() {
                 </span>
                 <span
                   className="size ask liq"
-                  style={a !== undefined ? { background: `rgba(251, 146, 60, ${(0.06 + 0.66 * (a / maxSize)).toFixed(2)})` } : undefined}
+                  style={a !== undefined ? { background: `rgba(var(--ask-rgb), ${(0.06 + 0.66 * (a / maxSize)).toFixed(2)})` } : undefined}
                  
                   onClick={(e) => place('sell', t, e.shiftKey)}
                 >
