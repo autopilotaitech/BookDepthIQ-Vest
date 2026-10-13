@@ -10,6 +10,7 @@ import {
   qtyString,
   readSavedLeverage,
   type CapitalAccount,
+  type ClosedPosition,
   type LivePosition,
   type OpenMarketInput,
   type RestingOrder,
@@ -344,6 +345,18 @@ export class LiveSession {
     // the 5 s safety-net poll.
     const limit = this.pushOpen ? PUSH_POLL_MS * 2 + 1000 : FRESH_MS;
     return this.positionsAt > 0 && this.deps.now() - this.positionsAt < limit;
+  }
+
+  /** Vest's position history for the selected account (newest first, up to `pages` × 50). Read-only. */
+  async closedPositions(pages = 2): Promise<ClosedPosition[]> {
+    if (!this.account || !this.tokenOk()) return [];
+    const out: ClosedPosition[] = [];
+    for (let i = 0; i < pages; i++) {
+      const page = await this.api.positionHistory(this.account.id, 50, i * 50);
+      out.push(...page);
+      if (page.length < 50) break;
+    }
+    return out;
   }
 
   entryInFlight(): boolean {

@@ -256,7 +256,12 @@ trades.
 **Journal** (the **journal** button top-right, in the Vest tape header next to *ST on* and *hide
 log*; click again for the tape): every round trip on the market on screen, with the setup
 tag, size, entry, stop, $ result and R, totals and results per setup, and **copy CSV**. PAPER
-results are exact (fees in); LIVE ones are the last marked P&L (≈). Kept in this browser.
+results are exact (fees in). LIVE rows **sync with Vest's position history** (v1.9.3): a few
+seconds after each LIVE close, when you go LIVE, and on **sync Vest**. Each row takes Vest's own
+entry, exit, size, P&L and funding, and Vest trades the journal missed (other markets, Vest's own
+page) are added. The P&L column is Vest's (open vs close price, fees not included, as on Vest's
+history); the line under the totals shows **net after fees + funding**. A row still marked ≈ has
+not been matched yet. Kept in this browser.
 
 **Risk calculator (v1.9)**: the **RISK** button in the header opens it over the panel. It reads
 your account (LIVE: balance, fail floor and per-market leverage from Vest; PAPER: the paper
@@ -322,6 +327,7 @@ the **LIVE LOG** pane. Its **copy** button copies it with your login already bla
 
 | Version | What changed |
 |---|---|
+| 1.9.3 | Journal matches Vest: LIVE rows take Vest's own entry, exit, P&L and funding from its position history (auto after each close, on going LIVE, and **sync Vest**); Vest trades the journal missed are added; net after fees + funding line. |
 | 1.9.2 | Orders go on ONE click again: fat-finger checks and a stale feed warn instead of blocking. **Order log** (click *log*): every order click, hotkey, warning, block reason, Vest's answer and any error, kept across reloads, with **copy**. Hotkeys on SAFE say so instead of doing nothing. RISK: **Funding** (Silver/Gold/Platinum evaluation, 6% static floor, daily 3%/4%/none) next to Instant; Funding presets in paper settings. |
 | 1.9.1 | Stop entries fire on **touch** only: the trade that reaches your stop price fires it (PAPER too, from the tape). The 1m CLOSE option is gone. |
 | 1.9.0 | **RISK** calculator inside the panel (any market, live prices and leverage caps, risk map, leverage chart, every-market table, Use in DOM), **% room @SL** sizing, your own max leverage, fail-line check and preview FAIL line. **Instant** accounts ($500 / $5K / $10K / $25K, static floor) in RISK and the paper settings. **SuperTrend scalp read** (GO on a pullback to ST1 / wait / STRETCHED, NO CHASE line), TREND/CHOP read from price. |

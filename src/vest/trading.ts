@@ -17,6 +17,8 @@ import {
   readOpenResult,
   readOrders,
   readPositions,
+  readPositionHistory,
+  type ClosedPosition,
   redact,
   type CapitalAccount,
   type LivePosition,
@@ -121,6 +123,11 @@ export class VestTrading {
     // Vest's own page reads these with the USER token (seen live 2026-10-08), so no account-token
     // mint stands between the panel and its position — and FLATTEN can always see what it closes.
     return readPositions(await this.call('GET', '/v3/positions/opened', undefined, 'user', 'read', exit));
+  }
+  /** Closed positions, newest first (Vest's position history). Read-only. */
+  async positionHistory(accountId: string, limit = 50, offset = 0): Promise<ClosedPosition[]> {
+    const q = `account_id=${encodeURIComponent(accountId)}&limit=${limit}&offset=${offset}`;
+    return readPositionHistory(await this.call('GET', `/v3/positions?${q}`, undefined, 'user', 'read'));
   }
   async orders(exit = false): Promise<RestingOrder[]> {
     return readOrders(await this.call('GET', '/v3/positions/opened-orders', undefined, 'user', 'read', exit));

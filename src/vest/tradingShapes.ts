@@ -368,3 +368,46 @@ export function readAccountToken(body: unknown): { token: string; expiresAtMs?: 
   const token = str(b.accessToken ?? b.apiKey);
   return token ? { token, expiresAtMs: num(b.accessExpiresAtMs) } : null;
 }
+
+export interface ClosedPosition {
+  positionId: string;
+  symbol: string;
+  side: PositionSide;
+  qty: number;
+  openPrice: number;
+  closePrice?: number;
+  /** Vest's realized P&L on the position: open vs close price, fees NOT included. */
+  pnl: number;
+  /** Funding paid (−) or received (+) over the position's life. */
+  funding?: number;
+  openMs?: number;
+  closeMs?: number;
+  closeReason?: string;
+}
+
+const timeMs = (v: unknown): number | undefined => {
+  const n = num(v);
+  if (n !== undefined) return n < 1e12 ? n * 1000 : n;
+  const t = typeof v === 'string' ? Date.parse(v) : NaN;
+  return Number.isFinite(t) ? t : undefined;
+};
+
+/**
+ * GET /v3/positions?account_id&limit&offset (user token) — Vest's own position HISTORY, read
+ * from its web app 2026-10-13: `{ positions, total }`; its history table shows symbol, side,
+ * leverage, quantity, openPrice, closePrice, pnl ("Realized PnL on this position, based on Open
+ * Price vs Close Price"), funding, openDate, closeDate, closeReason.
+ */
+export function readPositionHistory(body: unknown): ClosedPosition[] {
+  return listOf(body, 'positions').flatMap((p) => {
+    const positionId = str(p.positionId ?? p.id);
+    const symbol = str(p.symbol);
+    const sideRaw = String(p.side ?? '').toLowerCase();
+    const side: PositionSide | undefined = sideRaw === 'long' || sideRaw === 'buy' ? 'long' : sideRaw === 'short' || sideRaw === 'sell' ? 'short' : undefined;
+    const qty = num(p.quantity ?? p.qty);
+    const openPrice = num(p.openPrice);
+    const pnl = num(p.pnl);
+    if (!positionId || !symbol || !side || qty === undefined || openPrice === undefined || pnl === undefined) return [];
+    return [{ positionId, symbol, side, qty: Math.abs(qty), openPrice, closePrice: num(p.closePrice), pnl, funding: num(p.funding), openMs: timeMs(p.openDate), closeMs: timeMs(p.closeDate), closeReason: str(p.closeReason) }];
+  });
+}

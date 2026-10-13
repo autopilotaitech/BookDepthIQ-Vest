@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { bestAsk, bestBid } from '../src/book/book';
 import { PanelModel } from '../src/panel/model';
 import { formatPrice, tickDecimals, type BracketSettings, type Result, type Side, type WorkingOrder } from '../src/sim/paper';
-import { journalCsv, journalStats, marketState, rMultiple, scalpRead, SCALP_NEAR_ATR, SCALP_PULLBACK_BARS, swingStopTicks, type JournalTrade, type MarketState } from '../src/panel/structure';
+import { journalCsv, journalStats, syncJournalWithVest, marketState, rMultiple, scalpRead, SCALP_NEAR_ATR, SCALP_PULLBACK_BARS, swingStopTicks, type JournalTrade, type MarketState } from '../src/panel/structure';
 import { feedHealth, needsConfirm, percentiles, tradeChecks, type TradeCheck } from '../src/panel/checks';
 import type { Session } from '../src/panel/replay';
 import { failPrice, leverageUsed, marginUsed, maxUnits, unitsForNotional } from '../src/sim/account';
@@ -78,8 +78,8 @@ function PointsInput(props: { ticks: number; tick: number; signed?: boolean; onT
 }
 
 /** The trade journal: totals, results by setup, the last trades, CSV export. */
-function JournalView(props: { trades: JournalTrade[]; onClear: () => void }) {
-  const { trades, onClear } = props;
+function JournalView(props: { trades: JournalTrade[]; onClear: () => void; onSync?: () => void; syncMsg?: string }) {
+  const { trades, onClear, onSync, syncMsg } = props;
   const st = journalStats(trades);
   const fR = (r: number | undefined) => (r === undefined ? '—' : `${r >= 0 ? '+' : ''}${r.toFixed(2)}R`);
   return (
@@ -87,6 +87,15 @@ function JournalView(props: { trades: JournalTrade[]; onClear: () => void }) {
       <div className="jsum">
         <b>{st.n}</b> trades · <b>{Math.round(st.winRate * 100)}%</b> won · <b className={pnlClass(st.totalUsd)}>{fmtUsd(st.totalUsd)}</b> · avg <b>{fR(st.avgR)}</b>
       </div>
+      {trades.some((t) => t.vestId) && (
+        <div className="jset" title="LIVE rows synced with Vest show Vest's own P&L (open vs close price, fees not included — as on Vest's position history). Net = P&L − fees + funding.">
+          <span>
+            net after fees + funding{' '}
+            <b className={pnlClass(st.totalUsd - st.exec.feesUsd + st.fundingUsd)}>{fmtUsd(st.totalUsd - st.exec.feesUsd + st.fundingUsd)}</b>
+          </span>
+          <span>funding <b>{fmtUsd(st.fundingUsd)}</b></span>
+        </div>
+      )}
       <div className="jset" title="execution: slippage = filled vs the price you expected when you clicked (+ = worse); fees on entries; maker = limit fills, taker = market/stop fills; ack = Vest's answer time (LIVE)">
         <span>slip avg <b>{st.exec.avgSlipPts === undefined ? '—' : `${st.exec.avgSlipPts.toFixed(2)} pts`}</b> ({fmtUsd(st.exec.slipUsd)})</span>
         <span>fees <b>{fmtUsd(-st.exec.feesUsd)}</b></span>
@@ -103,9 +112,15 @@ function JournalView(props: { trades: JournalTrade[]; onClear: () => void }) {
         </div>
       )}
       <div className="jbtns">
+        {onSync && (
+          <button className="mini" title="read Vest's position history and make the LIVE rows match it: Vest's entry, exit, size, P&L and funding; adds Vest trades the journal missed (other markets, Vest's own page)" onClick={onSync}>
+            sync Vest
+          </button>
+        )}
         <button className="mini" onClick={() => void navigator.clipboard?.writeText(journalCsv(trades)).catch(() => {})}>
           copy CSV
         </button>
+        {syncMsg && <span className="muted">{syncMsg}</span>}
         <button className="mini" onClick={onClear}>
           clear
         </button>
@@ -114,7 +129,7 @@ function JournalView(props: { trades: JournalTrade[]; onClear: () => void }) {
         .reverse()
         .slice(0, 60)
         .map((t) => (
-          <div key={`${t.open}-${t.sym}`} className="jrow" title={`${t.mode} · expected ${t.expected ?? '—'} · entry ${t.entry}${t.exit ? ` → ${t.exit}` : ''}${t.stop ? ` · stop ${t.stop}` : ''} · ${t.stopMode} stop${t.liquidity ? ` · ${t.liquidity}` : ''}${t.feeUsd !== undefined ? ` · fee $${t.feeUsd.toFixed(2)}` : ''}${t.ackMs !== undefined ? ` · ack ${t.ackMs} ms` : ''}${t.approx ? ' · LIVE result is the last marked P&L (≈)' : ''}`}>
+          <div key={`${t.open}-${t.sym}`} className="jrow" title={`${t.mode} · expected ${t.expected ?? '—'} · entry ${t.entry}${t.exit ? ` → ${t.exit}` : ''}${t.stop ? ` · stop ${t.stop}` : ''} · ${t.stopMode} stop${t.liquidity ? ` · ${t.liquidity}` : ''}${t.feeUsd !== undefined ? ` · fee $${t.feeUsd.toFixed(2)}` : ''}${t.ackMs !== undefined ? ` · ack ${t.ackMs} ms` : ''}${t.approx ? ' · LIVE result is the last marked P&L (≈) until synced with Vest' : ''}${t.vestId ? ` · Vest position ${t.vestId}${t.funding !== undefined ? ` · funding $${t.funding.toFixed(2)}` : ''}` : ''}`}>
             <span>{new Date(t.close).toLocaleTimeString([], { hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
             <span>{t.sym.replace(/-PERP$/, '')}</span>
             <span className={t.side === 'long' ? 'pos' : 'neg'}>{t.side === 'long' ? 'L' : 'S'}</span>
@@ -856,7 +871,10 @@ export function App() {
       return [];
     }
   });
+  const journalRef = useRef(journal);
+  journalRef.current = journal;
   const saveJournal = (j: JournalTrade[]) => {
+    journalRef.current = j;
     setJournal(j);
     try {
       localStorage.setItem('bdiqvest.journal.v1', JSON.stringify(j.slice(-500)));
@@ -864,6 +882,30 @@ export function App() {
       /* storage unavailable: the journal lasts while this window is open */
     }
   };
+  // ── Journal ↔ Vest: LIVE rows take Vest's own numbers from its position history ──
+  const [syncMsg, setSyncMsg] = useState('');
+  const syncVest = async (quiet = false) => {
+    if (!L.account) return quiet || setSyncMsg('LIVE login needed to read Vest');
+    try {
+      const hist = await L.closedPositions();
+      const closed = hist.map((c) => ({ ...c, sym: m.table?.resolve(c.symbol)?.displaySymbol ?? c.symbol }));
+      const r = syncJournalWithVest(journalRef.current, closed, (sym) => Number(m.table?.resolve(sym)?.takerFee ?? 0) || 0);
+      if (r.matched || r.added) saveJournal(r.trades);
+      setSyncMsg(`Vest: ${hist.length} closed read · ${r.matched} matched · ${r.added} added`);
+    } catch (e) {
+      setSyncMsg(`Vest history read failed: ${(e as Error).message}`);
+    }
+  };
+  const syncTimers = useRef<number[]>([]);
+  /** After a LIVE close Vest needs a moment to book it: sync at 3 s and again at 20 s. */
+  const syncSoon = () => {
+    for (const ms of [3000, 20000]) syncTimers.current.push(window.setTimeout(() => void syncVest(true), ms));
+  };
+  useEffect(() => () => syncTimers.current.forEach((h) => clearTimeout(h)), []);
+  useEffect(() => {
+    if (live) void syncVest(true);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [live, L.account?.id]);
   const openTrade = useRef<null | {
     open: number;
     sym: string;
@@ -900,6 +942,7 @@ export function App() {
           feeUsd: cur.feeUsd, liquidity: cur.liquidity, ackMs: cur.ackMs,
         },
       ]);
+      if (cur.mode === 'live') syncSoon();
     };
     if (pos.qty !== 0) {
       if (!o || o.sym !== sym || o.side !== side) {
@@ -2182,7 +2225,7 @@ Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warmi
                 </button>
               )}
             </h4>
-            {s.showJournal && <JournalView trades={journal} onClear={() => saveJournal([])} />}
+            {s.showJournal && <JournalView trades={journal} onClear={() => saveJournal([])} onSync={() => void syncVest()} syncMsg={syncMsg} />}
             {!s.showJournal && m.tape.slice(0, s.showLog ? 40 : 120).map((r) => (
               <div key={r.id} className={`trow ${r.side} ${ind.bigOn && r.qty >= ind.bigMin ? (r.qty >= 3 * ind.bigMin ? 'big huge' : 'big') : ''}`}>
                 <span>{new Date(r.time).toLocaleTimeString([], { hour12: false })}</span>

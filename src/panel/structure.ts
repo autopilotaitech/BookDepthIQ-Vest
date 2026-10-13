@@ -183,7 +183,8 @@ export interface JournalTrade {
   /** Stop at entry and the $ it risked (fees not included), when there was one. */
   stop?: number;
   riskUsd?: number;
-  /** $ result, fees included in PAPER; LIVE is the last marked open P&L (≈). */
+  /** $ result: PAPER fees included; LIVE synced with Vest = Vest's P&L (fees not included, as on
+   * Vest's history); LIVE not synced yet = the last marked open P&L (≈). */
   pnl: number;
   approx: boolean;
   setup: string;
@@ -196,6 +197,78 @@ export interface JournalTrade {
   feeUsd?: number;
   liquidity?: 'maker' | 'taker';
   ackMs?: number;
+  /** LIVE rows synced with Vest's position history: its position id and funding over the trade. */
+  vestId?: string;
+  funding?: number;
+}
+
+/** A closed position from Vest's history, with the display symbol already resolved. */
+export interface VestClosed {
+  positionId: string;
+  sym: string;
+  side: 'long' | 'short';
+  qty: number;
+  openPrice: number;
+  closePrice?: number;
+  /** Vest's realized P&L, open vs close price (fees not included). */
+  pnl: number;
+  funding?: number;
+  openMs?: number;
+  closeMs?: number;
+}
+
+/**
+ * Brings the journal in line with Vest: each LIVE row is matched to the Vest position that closed
+ * closest to it (same market and side, closed between its open − 10 s and its close + 3 min) and
+ * takes Vest's entry, exit, size, P&L and funding. Vest positions no row matches (other markets,
+ * trades made on Vest's own page, a closed panel) are added as LIVE rows. Fees stay the panel's
+ * estimate: entry fee as recorded plus the exit at `exitFeeRate`.
+ */
+export function syncJournalWithVest(trades: JournalTrade[], closed: VestClosed[], exitFeeRate: (sym: string) => number): { trades: JournalTrade[]; matched: number; added: number } {
+  const used = new Set(trades.map((t) => t.vestId).filter((x): x is string => !!x));
+  let matched = 0;
+  const fee = (sym: string, qty: number, px: number | undefined) => (px === undefined ? 0 : qty * px * exitFeeRate(sym));
+  const out = trades.map((t) => {
+    if (t.mode !== 'live' || t.vestId) return t;
+    let best: VestClosed | undefined;
+    let bestGap = Infinity;
+    for (const c of closed) {
+      if (used.has(c.positionId) || c.sym !== t.sym || c.side !== t.side) continue;
+      const at = c.closeMs ?? c.openMs;
+      if (at === undefined) continue;
+      const ok = c.closeMs !== undefined ? at >= t.open - 10_000 && at <= t.close + 180_000 : at >= t.open - 180_000 && at <= t.close;
+      const gap = Math.abs(at - (c.closeMs !== undefined ? t.close : t.open));
+      if (ok && gap < bestGap) {
+        best = c;
+        bestGap = gap;
+      }
+    }
+    if (!best) return t;
+    used.add(best.positionId);
+    matched++;
+    const entryFee = t.feeUsd ?? 0;
+    return { ...t, vestId: best.positionId, entry: best.openPrice, exit: best.closePrice ?? t.exit, qty: best.qty, pnl: best.pnl, funding: best.funding, approx: false, feeUsd: entryFee + fee(best.sym, best.qty, best.closePrice) };
+  });
+  const added = closed
+    .filter((c) => !used.has(c.positionId) && c.closeMs !== undefined)
+    .map((c): JournalTrade => ({
+      open: c.openMs ?? c.closeMs!,
+      close: c.closeMs!,
+      sym: c.sym,
+      side: c.side,
+      qty: c.qty,
+      entry: c.openPrice,
+      exit: c.closePrice,
+      pnl: c.pnl,
+      funding: c.funding,
+      approx: false,
+      setup: '',
+      mode: 'live',
+      stopMode: '',
+      vestId: c.positionId,
+      feeUsd: fee(c.sym, c.qty, c.openPrice) + fee(c.sym, c.qty, c.closePrice),
+    }));
+  return { trades: [...out, ...added].sort((a, b) => a.close - b.close), matched, added: added.length };
 }
 
 /** Result in R (P&L ÷ risk at entry), when the risk is known. */
@@ -213,6 +286,8 @@ export interface JournalStats {
   bySetup: Array<{ setup: string; n: number; totalUsd: number; avgR: number | undefined }>;
   /** Execution quality over the trades that recorded it. */
   exec: { avgSlipPts: number | undefined; slipUsd: number; feesUsd: number; maker: number; taker: number; ack: { p50: number; p95: number } | undefined };
+  /** Funding over the LIVE rows synced with Vest. */
+  fundingUsd: number;
 }
 
 export function journalStats(trades: JournalTrade[]): JournalStats {
@@ -225,6 +300,7 @@ export function journalStats(trades: JournalTrade[]): JournalStats {
     winRate: trades.length ? trades.filter((t) => t.pnl > 0).length / trades.length : 0,
     totalUsd: trades.reduce((a, t) => a + t.pnl, 0),
     avgR: avg(rs),
+    fundingUsd: trades.reduce((a, t) => a + (t.funding ?? 0), 0),
     exec: {
       avgSlipPts: avg(trades.map((t) => t.slipPts).filter((x): x is number => x !== undefined)),
       slipUsd: trades.reduce((a, t) => a + (t.slipPts !== undefined ? -t.slipPts * t.qty : 0), 0),
@@ -243,9 +319,9 @@ export function journalStats(trades: JournalTrade[]): JournalStats {
 export function journalCsv(trades: JournalTrade[]): string {
   const f = (v: number | undefined, d = 2) => (v === undefined ? '' : v.toFixed(d));
   return [
-    'open,close,minutes,market,mode,side,qty,entry,exit,stop,risk_usd,pnl_usd,r,setup,stop_mode,approx,expected,slip_pts,fee_usd,liquidity,ack_ms',
+    'open,close,minutes,market,mode,side,qty,entry,exit,stop,risk_usd,pnl_usd,r,setup,stop_mode,approx,expected,slip_pts,fee_usd,liquidity,ack_ms,funding_usd,vest_position',
     ...trades.map((t) =>
-      [new Date(t.open).toISOString(), new Date(t.close).toISOString(), ((t.close - t.open) / 60_000).toFixed(1), t.sym, t.mode, t.side, t.qty, t.entry, t.exit ?? '', t.stop ?? '', f(t.riskUsd), f(t.pnl), f(rMultiple(t)), t.setup, t.stopMode, t.approx ? 'yes' : '', t.expected ?? '', f(t.slipPts), f(t.feeUsd), t.liquidity ?? '', t.ackMs ?? ''].join(','),
+      [new Date(t.open).toISOString(), new Date(t.close).toISOString(), ((t.close - t.open) / 60_000).toFixed(1), t.sym, t.mode, t.side, t.qty, t.entry, t.exit ?? '', t.stop ?? '', f(t.riskUsd), f(t.pnl), f(rMultiple(t)), t.setup, t.stopMode, t.approx ? 'yes' : '', t.expected ?? '', f(t.slipPts), f(t.feeUsd), t.liquidity ?? '', t.ackMs ?? '', f(t.funding), t.vestId ?? ''].join(','),
     ),
   ].join('\n');
 }
