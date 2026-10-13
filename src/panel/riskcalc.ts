@@ -113,24 +113,46 @@ export function inGroup(root: string, g: RiskGroup): boolean {
 }
 
 /** Vest Instant funding (no evaluation): start size and static drawdown — the floor is start −
- * drawdown and never moves (funded.now listing, 2026-10; $500 / $10 matches the owner's account).
- * Account max leverage 25x as seen on the owner's account. Every number stays editable. */
+ * drawdown and never moves (docs.vestmarkets.com/vest-capital/account-tiers, 2026-10; $500 / $10
+ * matches the owner's account). Account max leverage 25x as seen on the owner's account. Every
+ * number stays editable. */
 export const INSTANT_PACKAGES = [
-  { label: '$500', start: 500, dd: 10 },
-  { label: '$5K', start: 5000, dd: 200 },
-  { label: '$10K', start: 10000, dd: 400 },
-  { label: '$25K', start: 25000, dd: 1000 },
+  { kind: 'instant', label: '$500', start: 500, dd: 10 },
+  { kind: 'instant', label: '$5K', start: 5000, dd: 200 },
+  { kind: 'instant', label: '$10K', start: 10000, dd: 400 },
+  { kind: 'instant', label: '$25K', start: 25000, dd: 1000 },
 ] as const;
 export const INSTANT_MAX_LEV = 25;
-export type InstantPackage = (typeof INSTANT_PACKAGES)[number];
 
-/** The Instant package an account's start value and fail floor match, if any. */
-export function instantMatch(start: number | undefined, floor: number | undefined): InstantPackage | undefined {
+/** Vest Capital evaluation tiers (1-Step / 2-Step, and the funded account you get on passing):
+ * max drawdown 6% of the start, static floor; daily loss limit 3%, 4% or none (2-Step: 3%); 1-Step
+ * target 10% or 20%, 2-Step 10% then 5% (docs.vestmarkets.com/vest-capital/account-tiers, 2026-10). */
+export const EVAL_PACKAGES = [
+  { kind: 'eval', label: 'Silver $5K', start: 5000, dd: 300 },
+  { kind: 'eval', label: 'Gold $10K', start: 10000, dd: 600 },
+  { kind: 'eval', label: 'Platinum $25K', start: 25000, dd: 1500 },
+] as const;
+/** Daily loss limit choices, fraction of the start (0 = none). */
+export const EVAL_DAILY = [0.03, 0.04, 0] as const;
+
+export type InstantPackage = (typeof INSTANT_PACKAGES)[number];
+export type EvalPackage = (typeof EVAL_PACKAGES)[number];
+export type Package = InstantPackage | EvalPackage;
+
+/** The package (Instant or evaluation tier) an account's start value and fail floor match, if any. */
+export function packageMatch(start: number | undefined, floor: number | undefined): Package | undefined {
   if (!(start! > 0) || floor === undefined) return undefined;
-  return INSTANT_PACKAGES.find((p) => Math.abs(p.start - start!) < 0.01 && Math.abs(p.start - p.dd - floor) < 0.01);
+  return [...INSTANT_PACKAGES, ...EVAL_PACKAGES].find((p) => Math.abs(p.start - start!) < 0.01 && Math.abs(p.start - p.dd - floor) < 0.01);
+}
+/** The Instant package an account matches, if any. */
+export function instantMatch(start: number | undefined, floor: number | undefined): InstantPackage | undefined {
+  const p = packageMatch(start, floor);
+  return p?.kind === 'instant' ? p : undefined;
 }
 
-/** Room on an Instant account: the floor is static, so profit adds to the room 1:1. */
-export function instantRoom(pkg: InstantPackage, balance: number): number {
-  return Math.max(0, balance - (pkg.start - pkg.dd));
+/** Room on a package account: the floor is static, so profit adds to the room 1:1. With a daily
+ * loss limit (fraction of the start), today's room is also capped at that limit (fresh day). */
+export function instantRoom(pkg: Package, balance: number, dailyFrac = 0): number {
+  const room = Math.max(0, balance - (pkg.start - pkg.dd));
+  return dailyFrac > 0 ? Math.min(room, pkg.start * dailyFrac) : room;
 }

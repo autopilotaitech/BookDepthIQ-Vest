@@ -21,7 +21,7 @@ import { watchHookStatus, watchUserToken, watchVestTabs } from './liveToken';
 import { liveOpenPnl } from '../src/live/rules';
 import { parseSplit, scaleOrders, splitTargets, type SkewDir, type Target } from '../src/live/targets';
 import type { BracketCtx } from '../src/live/session';
-import { INSTANT_MAX_LEV, INSTANT_PACKAGES, marketLevCap } from '../src/panel/riskcalc';
+import { EVAL_PACKAGES, INSTANT_MAX_LEV, INSTANT_PACKAGES, marketLevCap } from '../src/panel/riskcalc';
 import { RiskView } from './RiskView';
 
 const ROW_PX = 22;
@@ -1609,6 +1609,18 @@ Market: ${mstate.state === 'chop' ? 'CHOP' : mstate.state === 'warming' ? 'warmi
                 key={x.start}
                 className={`mini ${s.startEquity === x.start && s.maxDrawdownUsd === x.dd ? 'on' : ''}`}
                 onClick={() => update({ startEquity: x.start, maxDrawdownUsd: x.dd, leverage: INSTANT_MAX_LEV })}
+              >
+                {x.label}
+              </button>
+            ))}
+          </span>
+          <span className="mini-presets" title="Vest Capital evaluation / funded tiers: start value, 6% static drawdown (docs.vestmarkets.com, account tiers, 2026-10). Sets the paper account; leverage left as is. Check your own Vest screen.">
+            Funding
+            {EVAL_PACKAGES.map((x) => (
+              <button
+                key={x.start}
+                className={`mini ${s.startEquity === x.start && s.maxDrawdownUsd === x.dd ? 'on' : ''}`}
+                onClick={() => update({ startEquity: x.start, maxDrawdownUsd: x.dd })}
               >
                 {x.label}
               </button>

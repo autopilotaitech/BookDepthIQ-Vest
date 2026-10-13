@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { CME_MULTIPLIER, displayRoot } from '../src/panel/model';
-import { failPtsAtLev, inGroup, INSTANT_MAX_LEV, INSTANT_PACKAGES, instantMatch, instantRoom, marketLevCap, riskCalc, type InstantPackage, type RiskGroup } from '../src/panel/riskcalc';
+import { failPtsAtLev, inGroup, EVAL_DAILY, EVAL_PACKAGES, INSTANT_MAX_LEV, INSTANT_PACKAGES, instantRoom, marketLevCap, packageMatch, riskCalc, type Package, type RiskGroup } from '../src/panel/riskcalc';
 import { fetchTickers } from '../src/vest/rest';
 import { tickSizeOf } from '../src/vest/symbols';
 import type { SymbolInfo } from '../src/vest/types';
@@ -62,15 +62,18 @@ export function RiskView(p: RiskViewProps) {
   const [entryIn, setEntryIn] = useState('');
   const [stopIn, setStopIn] = useState('');
   const [tpIn, setTpIn] = useState('');
-  // "What if" account: an Instant package (static floor) or custom numbers; null = this account.
-  const [plan, setPlan] = useState<{ pkg?: InstantPackage; bal: string; room: string; max: string } | null>(null);
-  const mine = instantMatch(p.start, p.floor);
-  const instantPlan = (pkg: InstantPackage) => setPlan({ pkg, bal: String(pkg.start), room: String(pkg.dd), max: String(INSTANT_MAX_LEV) });
-  /** On an Instant plan the floor is static: a new balance moves the room with it. */
+  // "What if" account: an Instant or evaluation (funding) package, or custom numbers; null = this
+  // account. `daily` is the evaluation's daily loss limit, fraction of the start (0 = none).
+  const [plan, setPlan] = useState<{ pkg?: Package; daily?: number; bal: string; room: string; max: string } | null>(null);
+  const mine = packageMatch(p.start, p.floor);
+  const kindName = (k: Package['kind']) => (k === 'instant' ? 'Instant' : 'Funding');
+  const pkgPlan = (pkg: Package, daily = pkg.kind === 'eval' ? (plan?.daily ?? EVAL_DAILY[0]) : 0) =>
+    setPlan({ pkg, daily, bal: String(pkg.start), room: String(instantRoom(pkg, pkg.start, daily)), max: plan?.max ?? String(INSTANT_MAX_LEV) });
+  /** On a package plan the floor is static: a new balance moves the room with it. */
   const setBal = (bal: string) => {
     if (!plan) return;
     const b = parseFloat(bal.replace(/,/g, ''));
-    setPlan({ ...plan, bal, room: plan.pkg && Number.isFinite(b) ? String(instantRoom(plan.pkg, b)) : plan.room });
+    setPlan({ ...plan, bal, room: plan.pkg && Number.isFinite(b) ? String(instantRoom(plan.pkg, b, plan.daily)) : plan.room });
   };
   const [used, setUsed] = useState('');
 
@@ -198,7 +201,7 @@ export function RiskView(p: RiskViewProps) {
         <div>
           <b>Risk calculator</b>
           <small>
-            {plan ? (plan.pkg ? `planning an Instant ${plan.pkg.label}` : 'planning another package') : `${p.live ? 'your LIVE Vest account' : 'your PAPER account'}${mine ? ` (Instant ${mine.label})` : ''}`} · prices from Vest · never sends an order
+            {plan ? (plan.pkg ? `planning ${kindName(plan.pkg.kind)} ${plan.pkg.label}` : 'planning another package') : `${p.live ? 'your LIVE Vest account' : 'your PAPER account'}${mine ? ` (${kindName(mine.kind)} ${mine.label})` : ''}`} · prices from Vest · never sends an order
           </small>
         </div>
         <div className="rv-headbtns">
@@ -218,32 +221,60 @@ export function RiskView(p: RiskViewProps) {
             <span className="rv-lbl">Account</span>
             <div className="rv-seg">
               <button className={plan ? '' : 'on'} onClick={() => setPlan(null)}>
-                Mine{mine ? ` · Instant ${mine.label}` : ''}
+                Mine{mine ? ` · ${kindName(mine.kind)} ${mine.label}` : ''}
               </button>
-              <button className={plan?.pkg ? 'on' : ''} onClick={() => instantPlan(mine ?? INSTANT_PACKAGES[0])}>
+              <button className={plan?.pkg?.kind === 'instant' ? 'on' : ''} onClick={() => pkgPlan(mine?.kind === 'instant' ? mine : INSTANT_PACKAGES[0])}>
                 Instant
+              </button>
+              <button className={plan?.pkg?.kind === 'eval' ? 'on' : ''} onClick={() => pkgPlan(mine?.kind === 'eval' ? mine : EVAL_PACKAGES[0])}>
+                Funding
               </button>
               <button className={plan && !plan.pkg ? 'on' : ''} onClick={() => setPlan({ bal: plan?.bal ?? '5000', room: plan?.room ?? '200', max: plan?.max ?? String(INSTANT_MAX_LEV) })}>
                 Custom
               </button>
             </div>
-            {plan?.pkg && (
-              <div className="rv-seg" title="Vest Instant funding (no evaluation): static drawdown, 2% on $500 and 4% on the rest, as listed on funded.now (2026-10). Check your own Vest screen; every box stays editable.">
+            {plan?.pkg?.kind === 'instant' && (
+              <div className="rv-seg" title="Vest Instant funding (no evaluation): static drawdown, 2% on $500 and 4% on the rest (docs.vestmarkets.com, account tiers, 2026-10). Check your own Vest screen; every box stays editable.">
                 {INSTANT_PACKAGES.map((x) => (
-                  <button key={x.start} className={plan.pkg === x ? 'on' : ''} onClick={() => instantPlan(x)}>
+                  <button key={x.start} className={plan.pkg === x ? 'on' : ''} onClick={() => pkgPlan(x)}>
                     {x.label}
                   </button>
                 ))}
               </div>
             )}
-            {plan?.pkg && (
+            {plan?.pkg?.kind === 'eval' && (
+              <>
+                <div className="rv-seg" title="Vest Capital evaluation (1-Step / 2-Step) and the funded account you get on passing: 6% static max drawdown (docs.vestmarkets.com, account tiers, 2026-10). Check your own Vest screen; every box stays editable.">
+                  {EVAL_PACKAGES.map((x) => (
+                    <button key={x.start} className={plan.pkg === x ? 'on' : ''} onClick={() => pkgPlan(x)}>
+                      {x.label}
+                    </button>
+                  ))}
+                </div>
+                <div className="rv-seg" title="daily loss limit of your configuration (2-Step is always 3%). With a limit, today's room is the smaller of the limit and equity − floor.">
+                  {EVAL_DAILY.map((d) => (
+                    <button key={d} className={plan.daily === d ? 'on' : ''} onClick={() => pkgPlan(plan.pkg!, d)}>
+                      {d ? `daily ${d * 100}%` : 'no daily'}
+                    </button>
+                  ))}
+                </div>
+              </>
+            )}
+            {plan?.pkg?.kind === 'instant' && (
               <small className="rv-note">
                 Instant {plan.pkg.label}: fails at ${(plan.pkg.start - plan.pkg.dd).toLocaleString('en-US')} equity, open P&L included. Static floor: profit adds to the room, it never trails. Type your balance now to see your room.
               </small>
             )}
+            {plan?.pkg?.kind === 'eval' && (
+              <small className="rv-note">
+                Funding {plan.pkg.label}: fails at ${(plan.pkg.start - plan.pkg.dd).toLocaleString('en-US')} equity (6% static)
+                {plan.daily ? ` or a $${(plan.pkg.start * plan.daily).toLocaleString('en-US')} day` : ''}. Target 1-Step ${(plan.pkg.start * 0.1).toLocaleString('en-US')} (10%) or ${(plan.pkg.start * 0.2).toLocaleString('en-US')} (20%); 2-Step 10% then 5%. Same rules funded. Type your balance now to see your room.
+              </small>
+            )}
             {!plan && mine && (
               <small className="rv-note">
-                Instant {mine.label}: static floor ${p.floor!.toLocaleString('en-US')} · room ${p.room.toFixed(2)} = equity − floor
+                {kindName(mine.kind)} {mine.label}: static floor ${p.floor!.toLocaleString('en-US')} · room ${p.room.toFixed(2)} = equity − floor
+                {mine.kind === 'eval' ? ' (a daily loss limit, if your plan has one, can be tighter today)' : ''}
               </small>
             )}
           </div>

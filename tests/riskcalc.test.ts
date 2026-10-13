@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { failPtsAtLev, inGroup, INSTANT_MAX_LEV, INSTANT_PACKAGES, instantMatch, instantRoom, marketLevCap, riskCalc, type RiskInput } from '../src/panel/riskcalc.js';
+import { EVAL_PACKAGES, packageMatch, failPtsAtLev, inGroup, INSTANT_MAX_LEV, INSTANT_PACKAGES, instantMatch, instantRoom, marketLevCap, riskCalc, type RiskInput } from '../src/panel/riskcalc.js';
 
 // $500 Instant on NQ at 32,000: fails $10 down, 25x account cap, NQ fee 0.0025%.
 const base: RiskInput = { balance: 500, room: 10, levCap: 25, price: 32000, feeRate: 0, stopPts: 20, targetPts: 40, mode: 'risk', riskUsd: 5, lev: 10, sizeDecimals: 4 };
@@ -85,5 +85,19 @@ describe('Instant accounts', () => {
     expect(r.units).toBe(10);
     expect(r.losersLeft).toBe(4);
     expect(r.levUsed).toBeCloseTo(8);
+  });
+});
+
+describe('Funding (evaluation) tiers', () => {
+  it('6% static floor; matched from start and floor', () => {
+    expect(packageMatch(10000, 9400)?.label).toBe('Gold $10K');
+    expect(packageMatch(500, 490)?.kind).toBe('instant');
+    expect(instantMatch(10000, 9400)).toBeUndefined();
+  });
+  it("a daily loss limit caps today's room; none leaves equity − floor", () => {
+    const silver = EVAL_PACKAGES[0];
+    expect(instantRoom(silver, 5000)).toBe(300);
+    expect(instantRoom(silver, 5000, 0.03)).toBe(150);
+    expect(instantRoom(silver, 4800, 0.04)).toBe(100);
   });
 });
