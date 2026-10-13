@@ -331,6 +331,18 @@ describe('v1.7 paper: bracket fixed at the click, 1-min close stops', () => {
     b.onTradePrint(112, T(61)); // previous minute closed 111 ≥ 110
     expect(b.position.qty).toBe(1);
   });
+  it('NQ 2026-10-12 03:33Z replay: wick through, minute closes under → waits; next close over → fires', () => {
+    const b = new PaperBroker(CFG);
+    b.onBook(book(100, 102));
+    b.stopOrder('buy', 1, 110, Date.now(), { enabled: false, tpTicks: 0, slTicks: 0 }, true); // 30663
+    b.onTradePrint(113, T(5)); // 30665.25 printed: through, but a close stop waits
+    b.onTradePrint(105, T(59)); // the minute closes 30661.75, under the stop
+    b.onTradePrint(108, T(61)); // new minute: previous close was under → nothing
+    expect(b.position.qty).toBe(0);
+    b.onTradePrint(112, T(119)); // closes 30665.75, over
+    b.onTradePrint(114, T(121)); // first trade of the next minute fires it
+    expect(b.position.qty).toBe(1);
+  });
 });
 function T(sec: number) {
   return Date.UTC(2026, 9, 12, 14, 0) + sec * 1000;

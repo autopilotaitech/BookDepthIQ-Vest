@@ -618,7 +618,7 @@ export function App() {
   // Panel-held stops on this symbol as dashed STP chips. Chip id -2000-i ↔ liveStopIds[i].
   const liveStops = live && m.info ? L.stops.list(m.info.symbol) : [];
   const liveStopIds = liveStops.map((x) => x.id);
-  const liveStopChips: WorkingOrder[] = liveStops.map((x, i) => ({ id: -2000 - i, side: x.side, type: 'stop' as const, priceTicks: x.ticks, qty: x.units, reduceOnly: false }));
+  const liveStopChips: WorkingOrder[] = liveStops.map((x, i) => ({ id: -2000 - i, side: x.side, type: 'stop' as const, priceTicks: x.ticks, qty: x.units, reduceOnly: false, confirmClose: x.confirm === 'close' }));
   const orders = live ? [...liveEntries, ...liveStopChips, ...liveLegs] : (broker?.orders ?? []);
   const ordersAt = (t: number, side: Side) => [...orders, ...pvChips].filter((o) => bucketOf(o.priceTicks, g) === t && o.side === side);
   const pos = live ? { qty: lpos?.qty ?? 0, avgTicks: lpos ? lpos.openPrice / tick : 0 } : (broker?.position ?? { qty: 0, avgTicks: 0 });
@@ -1225,6 +1225,13 @@ export function App() {
     >
       {o.id <= -3000 ? '◇' : ''}
       {o.leg ? o.leg.toUpperCase() : o.type === 'stop' ? 'STP' : 'LMT'} {o.id <= -3000 && refPx ? (o.leg === 'sl' ? `−$${riskWithFees(units, slEff, tick, refPx, feeRate).toFixed(2)}` : `+$${(o.qty * Math.abs(o.priceTicks - (pvRef ?? o.priceTicks)) * tick).toFixed(2)}`) : o.qty}
+      {o.type === 'stop' && !o.leg && o.confirmClose && (() => {
+        // A 1-min CLOSE stop: say what it waits for, so a trade through it that doesn't fire reads as expected.
+        const lt = m.lastTradeTicks;
+        const through = lt !== undefined && (o.side === 'buy' ? lt >= o.priceTicks : lt <= o.priceTicks);
+        const secs = 60 - Math.floor((Date.now() % 60_000) / 1000);
+        return <i className={`cst ${through ? 'through' : ''}`}>{through ? ` · 1m CLOSE: through — fires in ${secs}s if it holds` : ` · 1m CLOSE: waits for a close ${o.side === 'buy' ? '≥' : '≤'} ${formatPrice(o.priceTicks, tick)}`}</i>;
+      })()}
       {live && o.id <= -1000 && o.id > -2000 && (() => {
         const st = L.blotter.forOrder(liveOrderIds[-1000 - o.id] ?? '')?.status;
         return <i className="cst">{` · ${st ?? 'WORKING'}`}</i>;

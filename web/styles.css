@@ -629,3 +629,4 @@ b { font-weight: 600; }
 .scalpbadge.stretched { color: #fbbf24; border-color: #b45309; }
 .lrow .hl.nochase { border-top: 1px dotted #f59e0b; }
 .lrow .hltag.nochase { color: #fcd34d; border: 1px dotted #b45309; }
+.chip .cst.through { color: #4ade80; font-weight: 700; }
