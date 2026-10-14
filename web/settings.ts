@@ -109,6 +109,9 @@ export interface Settings {
   /** Widen the rows so the whole bracket is on screen. OFF by default: coarse rows move where a
    * click places an order (v1.6.1 had it always on and stop clicks landed through the market). */
   fitBracket: boolean;
+  /** Canvas ladder (beta, 2026-10-13): the ladder painted on one canvas; clicks stay on the DOM rows.
+   * PAPER only until the owner approves it for LIVE (LIVE always draws the standard ladder). */
+  canvasLadder: boolean;
   /** Risk page: open, its market filter, and your own leverage limit (0 = off; over it the ticket
    * asks for a second click, nothing is blocked). */
   showRisk: boolean;
@@ -181,6 +184,7 @@ export const DEFAULTS: Settings = {
   cooldownSec: 0,
   weekendClose: false,
   fitBracket: false,
+  canvasLadder: false,
   showRisk: false,
   riskGroup: 'fut',
   maxLevUser: 0,

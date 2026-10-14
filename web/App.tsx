@@ -25,6 +25,8 @@ import type { BracketCtx } from '../src/live/session';
 import { EVAL_PACKAGES, INSTANT_MAX_LEV, INSTANT_PACKAGES, marketLevCap } from '../src/panel/riskcalc';
 import { RiskView } from './RiskView';
 import { SettingsView } from './SettingsView';
+import { LadderCanvas } from './LadderCanvas';
+import type { PaintFrame } from './ladderPaint';
 import { OrderLog, type OrderLogEntry, type OrderLogStatus } from '../src/panel/orderlog';
 
 /** Default ladder column widths (fr). Dragging a header divider overrides them per column. */
@@ -1439,6 +1441,85 @@ export function App() {
     );
   };
 
+  // ── Canvas ladder (beta, 2026-10-13): the same values the rows show, painted on one canvas. PAPER only
+  // until the owner OKs it for LIVE: in LIVE the standard DOM ladder always draws. Clicks never move:
+  // the DOM rows stay on top as an empty click layer, each bound to its own row's price as before.
+  const canvasMode = !!s.canvasLadder && !live;
+  const rowsEl = rowsRef.current;
+  const canvasFrame: PaintFrame | null =
+    canvasMode && rowsEl && headW > 0 && frTotal > 0
+      ? (() => {
+          let acc = 0;
+          const pcols = colKeys.map((k) => {
+            const w = (colW(k) / frTotal) * headW;
+            const c = { key: k, x: acc, w };
+            acc += w;
+            return c;
+          });
+          const sizeTxt = (v: number, t: number) => (s.ladderUsd ? fmtK(v * t * tick) : v.toFixed(2));
+          return {
+            width: headW,
+            height: rowsEl.clientHeight,
+            rowH: rowsEl.clientHeight / Math.max(1, nRows),
+            cols: pcols,
+            failLabel: true,
+            rows: rows.map((t) => {
+              const b = bidAt.get(t);
+              const a = askAt.get(t);
+              const v = volAt.get(t);
+              const dl = deltaAt.get(t);
+              const bo = boughtG.get(t) ?? 0;
+              const so = soldG.get(t) ?? 0;
+              const pnl = pnlAt(t);
+              const hm = heatRows?.get(t);
+              const fl = s.showHeat ? m.liq.flow(t, g, ind.bigMin || 5) : undefined;
+              return {
+                t,
+                price: formatPrice(t, tick),
+                bestBid: t === bk(bid),
+                bestAsk: t === bk(ask),
+                last: t === bk(m.lastTradeTicks),
+                fail: t === bk(failRow),
+                inside: bid !== undefined && ask !== undefined && t > bk(bid)! && t + g - 1 < ask,
+                va: prof.val !== undefined && prof.vah !== undefined && t >= prof.val && t <= prof.vah,
+                poc: t === prof.poc,
+                idx: implied !== undefined && t === bk(implied),
+                bid: b !== undefined ? { text: sizeTxt(b, t), frac: b / maxSize, wall: bidWalls.has(t) } : undefined,
+                ask: a !== undefined ? { text: sizeTxt(a, t), frac: a / maxSize, wall: askWalls.has(t) } : undefined,
+                sold: so ? { text: fmtVol(so), imb: imb.sell.has(t), stack: imb.sellStack.has(t) } : undefined,
+                bought: bo ? { text: fmtVol(bo), imb: imb.buy.has(t), stack: imb.buyStack.has(t) } : undefined,
+                pnl: pnl === undefined ? undefined : { text: fmtUsd(pnl), sign: Math.sign(pnl) },
+                prof:
+                  v !== undefined
+                    ? { text: fmtVol(v), frac: v / maxVol, soldFrac: v ? so / v : 0, boughtFrac: v ? bo / v : 0, label: t === prof.poc ? 'POC' : t === prof.vah ? 'VAH' : t === prof.val ? 'VAL' : '' }
+                    : undefined,
+                delta: dl !== undefined && dl !== 0 ? { text: Math.abs(dl) >= 0.005 ? `${dl > 0 ? '+' : '−'}${fmtVol(Math.abs(dl))}` : '', frac: Math.abs(dl) / maxDelta, up: dl >= 0 } : undefined,
+                heat: hm
+                  ? {
+                      cells: hm.map((x) => {
+                        const ab = Math.abs(x);
+                        if (ab <= 1e-9) return null;
+                        return { alpha: 0.15 + 0.85 * Math.pow(Math.min(1, ab / heatP90), 0.8), side: (x > 0 ? 1 : -1) as 1 | -1, wall: heatMed > 0 && ab >= 3 * heatMed };
+                      }),
+                      net: fl && fl.signal && Math.abs(fl.net) >= 0.01 ? { text: `${fl.net > 0 ? '+' : '−'}${fmtVol(Math.abs(fl.net))}`, up: fl.net > 0 } : undefined,
+                      absorb: fl?.absorb || undefined,
+                    }
+                  : undefined,
+                lines: levelLines.get(t) ?? [],
+                st1: st1 && t === bk(st1.ticks) ? (st1.dir as 'up' | 'down') : undefined,
+                st2: st2 && t === bk(st2.ticks) ? (st2.dir as 'up' | 'down') : undefined,
+              };
+            }),
+          };
+        })()
+      : null;
+  const priceWheel = (e: React.WheelEvent) => {
+    // Wheel over prices = zoom the price scale (group rows); anywhere else scrolls.
+    e.stopPropagation();
+    const next = stepGroup(g, e.deltaY < 0 ? -1 : 1);
+    if (next !== g) update({ groupTicks: next });
+  };
+
   const orderChip = (o: WorkingOrder) => (
     <span
       key={o.id}
@@ -2045,7 +2126,7 @@ export function App() {
 
       <main className="body">
         <div
-          className={`ladder g8 ${health === 'stale' ? 'stale' : ''}`}
+          className={`ladder g8 ${health === 'stale' ? 'stale' : ''} ${canvasFrame ? 'canvas' : ''}`}
           onPointerEnter={() => setOverLadder(true)}
           onPointerLeave={() => setOverLadder(false)}
           onWheel={(e) => {
@@ -2108,6 +2189,7 @@ export function App() {
             ))}
           </div>
           <div className="rows" ref={rowsRef}>
+          {canvasFrame && <LadderCanvas frame={canvasFrame} />}
           {/* Off-screen levels pinned at the right, top for above and bottom for below (owner, 2026-10-13, as in the NT DOM). */}
           <div className="pins top">{pinned.filter((p) => p.above).map(pinRow)}</div>
           <div className="pins bottom">{pinned.filter((p) => !p.above).map(pinRow)}</div>
@@ -2160,6 +2242,26 @@ export function App() {
               act(t === drag.from ? broker.cancel(drag.id) : broker.modify(drag.id, t));
               setDrag(null);
             };
+            if (canvasFrame)
+              return (
+                <div key={t} className="lrow ghost" style={gridStyle} onPointerUp={drop}>
+                  {s.showHeat && <span />}
+                  <span className="orders buy" onClick={(e) => place('buy', t, e.shiftKey)}>
+                    {ordersAt(t, 'buy').map(orderChip)}
+                  </span>
+                  <span />
+                  <span className="size bid" onClick={(e) => place('buy', t, e.shiftKey)} />
+                  <span className="price" onWheel={priceWheel} />
+                  <span className="size ask" onClick={(e) => place('sell', t, e.shiftKey)} />
+                  <span />
+                  <span className="orders sell" onClick={(e) => place('sell', t, e.shiftKey)}>
+                    {ordersAt(t, 'sell').map(orderChip)}
+                  </span>
+                  {showPnl && <span />}
+                  <span />
+                  {s.showDelta && <span />}
+                </div>
+              );
             return (
               <div key={t} className={cls} style={gridStyle} onPointerUp={drop}>
                 {levelLines.get(t)?.map((l, i) => <i key={`hl${i}`} className={`hl ${l.cls}`} />)}

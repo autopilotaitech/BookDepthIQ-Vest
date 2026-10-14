@@ -846,3 +846,9 @@ b { font-weight: 600; }
 .ladder .rows .pins.top { top: 3px; }
 .ladder .rows .pins.bottom { bottom: 3px; flex-direction: column-reverse; }
 .ladder .rows .pins .pin { pointer-events: auto; background: rgba(var(--bg-rgb), 0.92); border: 1px solid currentColor; border-radius: 3px; font-size: 10px; line-height: 14px; padding: 0 5px; }
+
+/* Canvas ladder (beta, 2026-10-13): the canvas paints behind; the DOM rows above are an empty click layer. */
+.ladder.canvas .rows .lcanvas { position: absolute; left: 0; top: 0; z-index: 0; pointer-events: none; }
+.ladder.canvas .lrow.ghost { position: relative; z-index: 1; background: transparent; border-bottom-color: transparent; }
+.ladder.canvas .lrow.ghost > span { background: transparent; }
+.ladder.canvas .lrow.ghost .size:hover, .ladder.canvas .lrow.ghost .orders:hover { background: rgba(255, 255, 255, 0.05); }

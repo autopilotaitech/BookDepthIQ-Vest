@@ -240,6 +240,9 @@ export function SettingsView({ s, update, ind, setInd, profileNote, resetPaper, 
           <Row label="Index marker ◆" hint="index-implied mid; lags Vest by ~600 ms, reference only">
             <Switch on={s.showIndexRef} set={(v) => update({ showIndexRef: v })} />
           </Row>
+          <Row label="Canvas ladder (beta)" hint="sharper ladder drawn on one canvas, clicks unchanged; PAPER only — LIVE always uses the standard ladder">
+            <Switch on={s.canvasLadder} set={(v) => update({ canvasLadder: v })} />
+          </Row>
           <Row label="Fit the bracket on screen" hint="widens the rows so stop and targets show (moves where a click lands)">
             <Switch on={s.fitBracket} set={(v) => update({ fitBracket: v })} />
           </Row>
