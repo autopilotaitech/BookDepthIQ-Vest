@@ -2098,9 +2098,9 @@ export function App() {
             <span title="volume that lifted the ask at this price (buyers). Lit = buyers outweigh sellers diagonally by the imbalance ratio">bought</span>
             <span>sell</span>
             {showPnl && <span>P&amp;L</span>}
-            <span title="volume profile since the panel opened: orange = sold at bid, cyan = bought at ask · POC outlined · value area bright">volume profile</span>
+            <span title="volume profile since the panel opened: total volume at each price, brightest = POC, lighter = 70% value area. Buyers vs sellers is the Δ column.">volume profile</span>
             {s.showDelta && (
-              <span title="Δ = bought − sold at each price. Click to hide." className={`dhead ${m.cumDelta >= 0 ? 'up' : 'dn'}`} onClick={() => update({ showDelta: false })}>
+              <span title="Δ = bought − sold at each price: cyan right = buyers, orange left = sellers. Hover a row for the number. Click to hide." className={`dhead ${m.cumDelta >= 0 ? 'up' : 'dn'}`} onClick={() => update({ showDelta: false })}>
                 Δ
               </span>
             )}
@@ -2127,7 +2127,6 @@ export function App() {
             const volCls = t === prof.poc ? 'poc' : prof.val !== undefined && prof.vah !== undefined && t >= prof.val && t <= prof.vah ? 'va' : 'out';
             const bo = boughtG.get(t) ?? 0;
             const so = soldG.get(t) ?? 0;
-            const pLabel = t === prof.poc ? 'POC' : t === prof.vah ? 'VAH' : t === prof.val ? 'VAL' : '';
             const pnl = pnlAt(t);
             const cls = [
               'lrow',
@@ -2248,21 +2247,12 @@ export function App() {
                 </span>
                 {showPnl && <span className={`pnl ${pnl === undefined ? '' : pnlClass(pnl)}`}>{pnl === undefined ? '' : fmtUsd(pnl)}</span>}
                 <span className={`prof ${volCls}`} title={t === prof.poc ? 'POC — most traded price this session' : volCls === 'va' ? 'inside the 70% value area' : undefined}>
-                  <span className="ptrack">
-                    {v !== undefined && (
-                      <span className="pbar" style={{ width: `${(v / maxVol) * 100}%` }}>
-                        <i className="ps" style={{ width: `${v ? (so / v) * 100 : 0}%` }} />
-                        <i className="pb" style={{ width: `${v ? (bo / v) * 100 : 0}%` }} />
-                      </span>
-                    )}
-                  </span>
-                  <em className="pnum">{v !== undefined ? fmtVol(v) : ''}</em>
-                  <b className={`plabel ${pLabel === 'POC' ? 'poc' : ''}`}>{pLabel}</b>
+                  {/* As in the NT DOM: a neutral grey histogram, no numbers (POC brightest, value area mid-grey). */}
+                  <span className="ptrack">{v !== undefined && v > 0 && <span className="pbar" style={{ width: `${Math.min(1, v / maxVol) * 100}%` }} />}</span>
                 </span>
                 {s.showDelta && (
-                  <span className={`delta ${dl === undefined ? '' : dl >= 0 ? 'up' : 'dn'}`}>
-                    <span className="dtrack">{dl !== undefined && dl !== 0 && <i style={{ width: `${(Math.abs(dl) / maxDelta) * 50}%` }} />}</span>
-                    <em className="dnum">{dl !== undefined && Math.abs(dl) >= 0.005 ? `${dl > 0 ? '+' : '−'}${fmtVol(Math.abs(dl))}` : ''}</em>
+                  <span className={`delta ${dl === undefined ? '' : dl >= 0 ? 'up' : 'dn'}`} title={dl !== undefined && dl !== 0 ? `Δ ${dl > 0 ? '+' : '−'}${fmtVol(Math.abs(dl))}` : undefined}>
+                    <span className="dtrack">{dl !== undefined && dl !== 0 && <i style={{ width: `${Math.min(1, Math.abs(dl) / maxDelta) * 50}%` }} />}</span>
                   </span>
                 )}
               </div>

@@ -30,10 +30,11 @@
   --stack-buy: #38bdf8; --stack-buy-rgb: 56, 189, 248;
   --stack-sell: #f59e5b; --stack-sell-rgb: 245, 158, 91;
   --br-in: #94a3b8; --br-in-rgb: 148, 163, 184;
-  --prof-buy: #38bdf8; --prof-buy-rgb: 56, 189, 248;
-  --prof-sell: #f59e5b; --prof-sell-rgb: 245, 158, 91;
-  --delta-up: #38bdf8; --delta-up-rgb: 56, 189, 248;
-  --delta-dn: #f59e5b; --delta-dn-rgb: 245, 158, 91;
+  --prof-bar: #606a7a; --prof-bar-rgb: 96, 106, 122;
+  --prof-va: #96a0b2; --prof-va-rgb: 150, 160, 178;
+  --prof-poc: #e4e8f0; --prof-poc-rgb: 228, 232, 240;
+  --delta-up: #22d3ee; --delta-up-rgb: 34, 211, 238;
+  --delta-dn: #fb923c; --delta-dn-rgb: 251, 146, 60;
   --heat-bid: #22d3ee; --heat-bid-rgb: 34, 211, 238;
   --heat-ask: #fb923c; --heat-ask-rgb: 251, 146, 60;
   --heat-hot: #fde68a; --heat-hot-rgb: 253, 230, 138;
@@ -257,13 +258,6 @@ b { font-weight: 600; }
 .lrow .vol.poc em { color: #fff; font-weight: 700; }
 .lrow .vol.va em { color: #c3cad6; }
 /* delta: signed bar from the column centre, cyan + / orange âˆ’ */
-.lrow .delta { text-align: center; }
-.lrow .delta i { position: absolute; top: 3px; bottom: 3px; opacity: 0.75; border-radius: 2px; }
-.lrow .delta.up i { left: 50%; background: var(--delta-up); }
-.lrow .delta.dn i { right: 50%; background: var(--delta-dn); }
-.lrow .delta em { position: relative; font-size: 11px; color: #c3cad6; }
-.lrow .delta.up em { color: color-mix(in srgb, var(--delta-up) 45%, #fff); }
-.lrow .delta.dn em { color: color-mix(in srgb, var(--delta-dn) 40%, #fff); }
 .lrow.head .dhead { cursor: pointer; font-weight: 700; }
 .lrow.head .dhead.up { color: var(--delta-up); }
 .lrow.head .dhead.dn { color: var(--delta-dn); }
@@ -296,20 +290,6 @@ b { font-weight: 600; }
 /* price: value area tinted, POC outlined */
 .lrow.va .price { background: #1a1424; color: #f5d0fe; }
 .lrow.poc .price { box-shadow: inset 0 0 0 2px #e4e8f0; color: #fff; font-weight: 700; }
-/* profile: split bar, sold (orange) then bought (cyan) */
-.lrow .prof { display: flex; align-items: center; gap: 5px; padding: 0 0 0 4px; }
-.lrow.va .prof { background: rgba(232, 121, 249, 0.07); }
-.lrow .prof .pbar { display: flex; height: 12px; flex: none; max-width: 70%; opacity: 0.4; }
-.lrow .prof.va .pbar { opacity: 0.85; }
-.lrow .prof.poc .pbar { opacity: 1; outline: 2px solid #e4e8f0; outline-offset: 1px; }
-.lrow .prof .pbar i { display: block; height: 100%; }
-.lrow .prof .ps { background: var(--prof-sell); }
-.lrow .prof .pb { background: var(--prof-buy); }
-.lrow .prof em { font-size: 11px; color: #6b7485; }
-.lrow .prof.va em { color: #c3cad6; }
-.lrow .prof.poc em { color: #fff; font-weight: 700; }
-.lrow .prof .plabel { margin-left: auto; margin-right: 6px; font-size: 9px; letter-spacing: 0.08em; color: #e879f9; }
-.lrow .prof .plabel.poc { color: #fff; }
 
 /* â”€â”€â”€â”€â”€ v0.9 cost panel: fill estimate, break-even, spread gate â”€â”€â”€â”€â”€ */
 .coststrip { display: flex; flex-wrap: wrap; align-items: center; gap: 6px 14px; padding: 6px 8px; border-top: 1px solid var(--line); font-size: 12px; color: var(--muted); }
@@ -358,30 +338,19 @@ b { font-weight: 600; }
 
 /* â”€â”€â”€â”€â”€ v1.0.1 cleaner profile, delta and footprint â”€â”€â”€â”€â”€ */
 /* profile: thin translucent split bar in its own track; number and label in fixed slots */
-.lrow .prof { display: flex; align-items: center; gap: 6px; padding: 0 4px; }
+.lrow .prof { display: flex; align-items: stretch; padding: 0 0 0 1px; }
 .lrow.va .prof { background: none; }
-.lrow .prof .ptrack { position: relative; flex: 1; height: 100%; display: flex; align-items: center; min-width: 0; }
-.lrow .prof .pbar { display: flex; height: 7px; max-width: 100%; border-radius: 3px; overflow: hidden; opacity: 0.35; outline: none; transition: width 0.25s ease, opacity 0.25s ease; }
-.lrow .prof.va .pbar { opacity: 0.75; }
-.lrow .prof.poc .pbar { opacity: 1; height: 9px; outline: none; box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.55); }
-.lrow .prof .pbar i { display: block; height: 100%; transition: width 0.25s ease; }
-.lrow .prof .ps { background: var(--prof-sell); }
-.lrow .prof .pb { background: var(--prof-buy); }
-.lrow .prof .pnum { flex: none; width: 44px; text-align: right; font-size: 11px; font-style: normal; color: #5d6676; }
-.lrow .prof.va .pnum { color: #9aa3b2; }
-.lrow .prof.poc .pnum { color: #fff; font-weight: 700; }
-.lrow .prof .plabel { flex: none; width: 28px; margin: 0; text-align: left; font-size: 9px; letter-spacing: 0.06em; color: #c084fc; }
-.lrow .prof .plabel.poc { color: #fff; }
-/* delta: centred bar in a track, number in its own slot (never on top of the bar) */
-.lrow .delta { display: flex; align-items: center; gap: 4px; padding: 0 4px; text-align: left; }
-.lrow .delta .dtrack { position: relative; flex: 1; height: 7px; min-width: 0; }
-.lrow .delta .dtrack::before { content: ''; position: absolute; left: 50%; top: -3px; bottom: -3px; border-left: 1px solid #2a3344; }
-.lrow .delta .dtrack i { position: absolute; top: 0; bottom: 0; border-radius: 2px; opacity: 0.8; transition: width 0.25s ease; }
+/* profile, as in the NT DOM: neutral grey histogram over the full row, POC brightest, value area mid-grey */
+.lrow .prof .ptrack { position: relative; z-index: 3; flex: 1; display: flex; align-items: stretch; min-width: 0; padding: 0.5px 0; }
+.lrow .prof .pbar { display: block; max-width: 100%; background: var(--prof-bar); opacity: 0.5; }
+.lrow .prof.va .pbar { background: var(--prof-va); opacity: 0.85; }
+.lrow .prof.poc .pbar { background: var(--prof-poc); opacity: 0.95; }
+/* delta, as in the NT DOM: signed bar from the column centre over the full row, cyan + / orange − */
+.lrow .delta { display: flex; align-items: stretch; padding: 0; }
+.lrow .delta .dtrack { position: relative; z-index: 3; flex: 1; min-width: 0; margin: 0.5px 0; }
+.lrow .delta .dtrack i { position: absolute; top: 0; bottom: 0; opacity: 0.8; }
 .lrow .delta.up .dtrack i { left: 50%; right: auto; background: var(--delta-up); }
 .lrow .delta.dn .dtrack i { right: 50%; left: auto; background: var(--delta-dn); }
-.lrow .delta .dnum { flex: none; width: 46px; text-align: right; font-size: 11px; font-style: normal; color: #7a8394; position: static; }
-.lrow .delta.up .dnum { color: color-mix(in srgb, var(--delta-up) 60%, #fff); }
-.lrow .delta.dn .dnum { color: color-mix(in srgb, var(--delta-dn) 60%, #fff); }
 /* footprint: quiet numbers, imbalance = soft tint + edge, faded in/out (no flash) */
 .lrow .fp { font-size: 11px; color: #7a8394; transition: background-color 0.4s ease, color 0.4s ease, box-shadow 0.4s ease; }
 .lrow .fp.sold { color: #c9a38a; }
@@ -443,7 +412,7 @@ b { font-weight: 600; }
    Lines (ST ::before/::after z 2, .hl z 1) sit above cell backgrounds; every number sits above the
    lines and knocks a gap out of them with its own cell's background (background: inherit), plus a
    dark halo where the cell is transparent. Tags stay on top. */
-.lrow .ptxt, .lrow .liq em, .lrow .fpn, .lrow .pnl, .lrow .prof .pnum, .lrow .prof .plabel, .lrow .delta .dnum {
+.lrow .ptxt, .lrow .liq em, .lrow .fpn, .lrow .pnl {
   position: relative; z-index: 4; font-style: normal;
   text-shadow: 0 0 2px var(--bg), 0 0 4px var(--bg), 0 0 6px var(--bg);
 }
