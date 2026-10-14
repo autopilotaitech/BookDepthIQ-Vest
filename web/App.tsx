@@ -10,6 +10,7 @@ import { dayCheck, dayLimitHit, riskWithFees, tradingDay, unitsForRiskWithFees, 
 import { weekendCloseAt } from '../src/live/manage';
 import { fetchMarketHours } from '../src/vest/rest';
 import { aggregate, bucketOf, offscreen, rowPnlUsd, stepGroup } from '../src/panel/ladderMath';
+import { HEAT_WINDOWS, nextHeatMin } from '../src/panel/liquidity';
 import { loadSettings, saveSettings, type Settings, type SizeMode } from './settings';
 import { applyTheme } from './theme';
 import { edgeRatio, roundTrip, spreadGate } from '../src/panel/cost';
@@ -417,7 +418,10 @@ export function App() {
   useEffect(() => {
     m.configureIndicators(JSON.parse(indJson) as IndicatorCfg);
   }, [m, indJson, m.info?.symbol]);
-  // Heat · pull/stack window and the nPOC period.
+  // Heat · pull/stack window and the nPOC period. The heat column header cycles the window.
+  const heatMin = HEAT_WINDOWS.includes(s.heatMinutes) ? s.heatMinutes : 5;
+  const heatBinS = (heatMin * 60) / 30;
+  const heatFlowMin = heatMin / 5;
   useEffect(() => {
     m.configureHeat(s.heatMinutes ?? 5, s.npocMinutes ?? 15);
   }, [m, s.heatMinutes, s.npocMinutes, m.info?.symbol]);
@@ -2061,8 +2065,12 @@ export function App() {
             title="click = limit · shift+click = stop · chip: click cancel / drag move · wheel scroll · space recentre · F flatten · Esc cancel"
           >
             {s.showHeat && (
-              <span title="resting size at each price over the last 5 minutes (left = older, brighter = more size), then pull/stack over the last minute: − = size pulled without trading, + = size stacked. ABSORB = traded a lot while its size kept coming back.">
-                heat {s.heatMinutes ?? 5}m · pull/stack
+              <span
+                className="heathead"
+                title={`CLICK to change the window (5 → 15 → 30 → 60 min; a new window starts empty and fills as the book updates). Resting size at each price over the last ${heatMin} min in ${heatBinS} s slices (left = older, brighter = more size), then pull/stack over the last ${heatFlowMin} min: − = size pulled without trading, + = size stacked. ABSORB = traded a lot while its size kept coming back.`}
+                onClick={() => update({ heatMinutes: nextHeatMin(heatMin) })}
+              >
+                heat {heatMin}m ▾ · pull/stack
               </span>
             )}
             <span>buy</span>
@@ -2181,7 +2189,7 @@ export function App() {
                             </b>
                           )}
                         </span>
-                        <span className="hstrip" title={`average resting size per 10 s, last 5 min, left = older (now ${fmtVol(Math.abs(hm.at(-1) ?? 0))})`}>
+                        <span className="hstrip" title={`average resting size per ${heatBinS} s, last ${heatMin} min, left = older (now ${fmtVol(Math.abs(hm.at(-1) ?? 0))})`}>
                           {hm.map((v, i) => {
                             const a = Math.abs(v);
                             if (a <= 1e-9) return <i key={i} />;
@@ -2191,7 +2199,7 @@ export function App() {
                             return <i key={i} style={{ background: wall ? 'rgba(var(--heat-hot-rgb), 0.95)' : `rgba(${rgb},${(0.15 + 0.85 * Math.pow(x, 0.8)).toFixed(2)})` }} />;
                           })}
                         </span>
-                        <em className={fl.net > 0 ? 'stk' : fl.net < 0 ? 'pul' : ''} title={`last minute: pulled ${fmtVol(fl.pulled)} · stacked ${fmtVol(fl.stacked)} · traded ${fmtVol(fl.traded)}`}>
+                        <em className={fl.net > 0 ? 'stk' : fl.net < 0 ? 'pul' : ''} title={`last ${heatFlowMin} min: pulled ${fmtVol(fl.pulled)} · stacked ${fmtVol(fl.stacked)} · traded ${fmtVol(fl.traded)}`}>
                           {fl.signal && Math.abs(fl.net) >= 0.01 ? `${fl.net > 0 ? '+' : '−'}${fmtVol(Math.abs(fl.net))}` : ''}
                         </em>
                       </span>
@@ -2300,8 +2308,8 @@ export function App() {
                 <button className={`tchip ${s.showTicket !== false ? 'on' : ''}`} title="show or hide the ticket settings (hidden = tape and order buttons only)" onClick={() => update({ showTicket: s.showTicket === false })}>
                   TICKET
                 </button>
-                <button className={`tchip ${s.showHeat ? 'on' : ''}`} title="heatmap + pull/stack column on the ladder" onClick={() => update({ showHeat: !s.showHeat })}>
-                  HEAT
+                <button className={`tchip ${s.showHeat ? 'on' : ''}`} title={`heatmap + pull/stack column on the ladder (window ${heatMin} min: click the heat column header to change it)`} onClick={() => update({ showHeat: !s.showHeat })}>
+                  HEAT {heatMin}M
                 </button>
                 <button className={`tchip ${s.showTrend ? 'on' : ''}`} title={s.showTrend ? 'hide the SuperTrend lines and badge' : 'show the dual SuperTrend (BookDepthIQ) on the ladder'} onClick={() => update({ showTrend: !s.showTrend })}>
                   ST

@@ -9,6 +9,12 @@ import type { Book } from '../book/book.js';
 export const BIN_MS = 10_000;
 export const BINS = 30; // 5 minutes
 export const FLOW_WINDOW_MS = 60_000;
+/** The heat windows the user can pick (minutes); clicking the heat column header steps through them. */
+export const HEAT_WINDOWS = [5, 15, 30, 60];
+export function nextHeatMin(cur: number): number {
+  const i = HEAT_WINDOWS.indexOf(cur);
+  return HEAT_WINDOWS[(i + 1) % HEAT_WINDOWS.length]!;
+}
 /** Outermost book levels per side left out of pull/stack (they flicker in and out of view). */
 export const EDGE_LEVELS = 3;
 

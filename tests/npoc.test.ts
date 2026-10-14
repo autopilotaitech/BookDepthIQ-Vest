@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { NakedPocTracker } from '../src/panel/npoc.js';
-import { LiquidityTracker } from '../src/panel/liquidity.js';
+import { LiquidityTracker, nextHeatMin } from '../src/panel/liquidity.js';
 
 const M = 60_000;
 
@@ -27,5 +27,15 @@ describe('naked POC (same cases as BookDepthIQ-NT)', () => {
     expect(l.binMs).toBe(2 * M);
     expect(l.flowMs).toBe(12 * M);
     expect(new LiquidityTracker().flowMs).toBe(M); // default 5 min: pull/stack over 1 min, as before
+  });
+});
+
+describe('heat window picker', () => {
+  it('steps 5 → 15 → 30 → 60 → 5, and an unknown value starts at 5', () => {
+    expect([5, 15, 30, 60].map(nextHeatMin)).toEqual([15, 30, 60, 5]);
+    expect(nextHeatMin(7)).toBe(5);
+    const t = new LiquidityTracker(15 * 60_000);
+    expect(t.binMs).toBe(30_000);
+    expect(t.flowMs).toBe(180_000);
   });
 });

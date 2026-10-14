@@ -846,3 +846,8 @@ b { font-weight: 600; }
 .ladder .rows .pins.top { top: 3px; }
 .ladder .rows .pins.bottom { bottom: 3px; flex-direction: column-reverse; }
 .ladder .rows .pins .pin { pointer-events: auto; background: rgba(var(--bg-rgb), 0.92); border: 1px solid currentColor; border-radius: 3px; font-size: 10px; line-height: 14px; padding: 0 5px; }
+
+/* The heat column header cycles the window (5 / 15 / 30 / 60 min). */
+.lrow.head .heathead { cursor: pointer; }
+.lrow.head .heathead:hover { color: var(--accent); }
+
