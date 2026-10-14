@@ -34,4 +34,7 @@ jobs:
         run: |
           gh release create "$GITHUB_REF_NAME" "BookDepthIQ-Vest-$GITHUB_REF_NAME.zip" \
             --title "BookDepthIQ-Vest $GITHUB_REF_NAME (beta)" \
-            --notes "Ready-to-load Chrome extension. Unzip, then chrome://extensions → Developer mode → Load unpacked → pick the unzipped folder. See the README for how to use it. Beta: confirm your first trades on Vest's own screen."
+            --notes "Ready-to-load Chrome extension. Unzip, then chrome://extensions → Developer mode → Load unpacked → pick the unzipped folder. See the README for how to use it. Beta: confirm your first trades on Vest's own screen.
+
+          [![Tip jar: any amount](https://img.shields.io/badge/%F0%9F%92%B8_TIP_JAR-any_amount_%E2%86%92-635BFF?style=for-the-badge&logo=stripe&logoColor=white)](https://buy.stripe.com/14A14mh2P9bv3gp06yenS0b)
+          **Free to use.** If it helps your trading, leave a tip, any amount you like."

@@ -1,5 +1,10 @@
 # BookDepthIQ-Vest
 
+<p align="center">
+  <a href="https://buy.stripe.com/14A14mh2P9bv3gp06yenS0b"><img src="https://img.shields.io/badge/%F0%9F%92%B8_TIP_JAR-any_amount_%E2%86%92-635BFF?style=for-the-badge&logo=stripe&logoColor=white" alt="Tip jar: leave a tip, any amount (Stripe)" height="40"></a>
+  <br><sub><b>Free to use.</b> If it helps your trading, leave a tip, any amount you like. Secure checkout by Stripe.</sub>
+</p>
+
 A depth-ladder (DOM) scalping panel for **[Vest Markets](https://vestmarkets.com)** perps, starting
 with NQ. It runs as a Chrome extension next to your logged-in Vest tab. You get a price ladder with
 live Vest book, tape and volume, one-click market, limit and scale entries with TP/SL brackets (up
