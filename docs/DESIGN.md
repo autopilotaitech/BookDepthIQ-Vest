@@ -4,10 +4,12 @@ A scalping execution panel for Vest Markets perps, starting with NQ-PERP. **Sepa
 from BookDepthIQ.** BookDepthIQ stays futures + Rithmic only, and nothing here ships inside
 BookDepthIQ.exe.
 
-Status as of 2026-10-08 (v0.9.0): **phases 0–3 are done.** The panel starts in PAPER on every
+Status as of 2026-10-13 (v1.10.1): **phases 0–3 are done and the panel is feature-complete;** only
+bug fixes from here (owner's call, 2026-10-13). The panel starts in PAPER on every
 launch. Its LIVE mode **places, moves and cancels real orders at Vest** using the request shapes in
 `src/vest/tradingShapes.ts`, read from Vest's own web app. No HAR was captured (the owner's call);
-every LIVE path was then **verified in real trading on 2026-10-08**. Phase 4 (CME depth from BookDepthIQ) is next.
+every LIVE path was then **verified in real trading on 2026-10-08**. Phase 4 (CME depth from BookDepthIQ) is shelved.
+The README's *What's new* table lists every release since.
 
 ---
 
@@ -91,7 +93,7 @@ index move ≥4t in 1s:  78 events · mid followed 44  · went against first 34
 
 The published index is a lagging snapshot of what Vest's maker is already quoting from. It has
 no lead value, so the ◆ index-implied marker is **off by default** and labelled as a reference.
-This supports the phase-4 plan: if anything leads Vest, it is the CME book itself (via
+This supported the (now shelved) phase-4 plan: if anything leads Vest, it is the CME book itself (via
 BookDepthIQ), not Vest's index field. That claim is unmeasured until CME data is wired in. One
 5-minute evening sample, so re-run it in RTH before treating the result as settled.
 
@@ -134,7 +136,7 @@ storing credentials anywhere and survives Vest UI redesigns better than DOM-clic
 | 1 | panel UI on public data: price ladder, tape, spread, basis, size in NQ-equivalents, plus a LOCAL paper sim (`src/sim/paper.ts`) for click-to-trade, brackets, B/E, flatten | no (local only) | **done** |
 | 2 | auth + read-only account: position, working orders, fills, P&L | no | **done** (v0.5.0; account reads verified live 2026-10-08; v0.6.0 adds Vest's private push socket) |
 | 3 | click-to-trade: market/limit entry, TP/SL in ticks from the panel's boxes, cancel, flatten, B/E, drag stop | **yes** | **done** (market + ladder limit entries with TP/SL, B/E, flatten, cancel, order and leg drag; verified live 2026-10-08). Stop entries do not exist on Vest. Adds/reverse still paper-only |
-| 4 | CME depth/tape overlay from BookDepthIQ over localhost, live basis mapping | no | BookDepthIQ exposes a read-only feed for it |
+| 4 | CME depth/tape overlay from BookDepthIQ over localhost, live basis mapping | no | **shelved** (2026-10-13): the panel is done besides bug fixes |
 
 ---
 

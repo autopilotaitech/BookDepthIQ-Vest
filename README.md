@@ -134,14 +134,14 @@ and delta count from when the panel opens.
   tape header. On open it loads the last ~45 minutes of Vest trades ("SuperTrend loading 45
   min…"), so ST1, ST2 and the market state are right from the start instead of after 10+ minutes.
 
-**VWAP, imbalances and big trades** (settings → *Indicators*, saved per instrument)
+**VWAP, imbalances and big trades** (settings → *Indicators*, one set for every instrument)
 - **VWAP** with σ bands (default 1 and 2), anchored to your session **start/stop time** and time
   zone (default 09:30–16:00 New York). On open the panel pages in that session's trades from
   Vest, so VWAP is right even if you open the panel late. Drawn as a purple line with dashed band
   lines; the strip shows VWAP and how many σ price is from it.
 - **Footprint imbalances:** ratio, minimum volume (% of the busiest row), stack size, and
   **zone lines** for stacked imbalances (▲ support at the bottom of a buy run, ▼ resistance at the
-  top of a sell run). Turn the whole thing off per instrument.
+  top of a sell run). Turn the whole thing off in the same section.
 - **Big trades (tape only):** prints at or above your size (default 8u ≈ the top 1% of Vest NQ
   prints) flash when they hit and stay highlighted on the tape: bold, tinted by side with a side
   edge, a size bar and "B 12.40" / "S 9.80". At 3× your size they are larger and stronger.
@@ -154,7 +154,7 @@ and delta count from when the panel opens.
 - Like BookDepthIQ's engine, the range stays up until the next weekday bell (Friday's carries to
   Monday) and the EXT ladder keeps growing until then. Opening the panel late is fine: it pages in
   the bell window and every trade since from Vest (a busy day can take a few seconds). The strip shows the range, its size in points, and whether price is above, inside or
-  below it. Settings → Indicators → RTH opening range (shown only on NQ and ES).
+  below it. Settings → *Opening range* (bell, window, time zone and EXT steps are editable; drawn only on NQ and ES).
 
 **Funding** (Vest settles funding hourly, on the index notional)
 - The position strip shows Vest's current **hourly rate** and its yearly equivalent, **who pays**
@@ -367,7 +367,7 @@ the LIVE request log, on your clipboard — paste that into a bug report.
 - **Entry checks:** the size must fit your trading power, the account must be above its fail
   floor, positions must be freshly synced from Vest, and there must be no position already open on
   the symbol. These are the same limits Vest's own ticket enforces.
-- **Optional size cap:** settings → *LIVE size cap*. 0 means off.
+- **Optional size cap:** settings → *Account* → *LIVE size cap*. 0 means off.
 - **RISK never sends an order.** *Use in DOM* only fills in the ticket (size rule, stop, target).
   An entry over your own max leverage, or with its stop past the account's fail line, shows a
   warning; it still goes on one click, as on Vest's own ticket.
@@ -399,7 +399,7 @@ the LIVE request log, on your clipboard — paste that into a bug report.
 | An order doesn't go through and nothing says why | Click **log**, try once more, then **copy** in the ORDER LOG and send it. Hotkeys on **SAFE** do nothing but say so; click **HOTKEYS SAFE** to arm them. |
 | The journal doesn't match Vest | Open the journal and click **sync Vest**. The line next to it says how many Vest positions were read, matched and added. The journal's P&L is Vest's (before fees); the **net after fees + funding** line is what your balance moved. |
 | The header says **STRETCHED — don't chase** in a strong move | Price is 2+ ATR past the ST1 line; scalps from there lost on the measured NQ data. Wait for a pullback toward ST1 (**SCALP LONG/SHORT — pullback to ST1**). |
-| RISK numbers don't match my account | Paper: settings → **Instant** or **Funding** buttons, or type your start value, drawdown and leverage. LIVE reads them from Vest. RISK → **Instant / Funding / Custom** plans any other package. |
+| RISK numbers don't match my account | Paper: settings → *Account* → **Instant** or **Funding** buttons, or type your start value, drawdown and leverage. LIVE reads them from Vest. RISK → **Instant / Funding / Custom** plans any other package. |
 | Something looks wrong on Vest | Press **FLATTEN**, check Vest's own screen, then open an issue with the copied order log. |
 
 ## Reporting bugs
